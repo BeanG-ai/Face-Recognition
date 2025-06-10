@@ -1,0 +1,49 @@
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Database files
+Project/database/embeddings/*.npy
+Project/database/images/*.jpg
+Project/database/images/*/*.jpg
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Environment
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Model files (optional, uncomment if you don't want to version large model files)
+# Project/models/*.tflite
+# Project/models/*.onnx
+
+# Logs
+*.log
