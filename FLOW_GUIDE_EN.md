@@ -2,10 +2,12 @@
 
 ## 1. System Overview
 
-The face recognition system on Jetson Orin Nano X consists of three main flows:
-1. **User Registration Flow**: Captures face images from multiple angles and creates embeddings
-2. **Face Recognition Flow**: Detects and recognizes faces in real-time
-3. **Facial Authentication Flow**: Provides secure authentication with guide box and real-time feedback
+The face recognition system on Jetson Orin Nano X has been consolidated into a unified application with three operating modes:
+1. **Registration Mode**: Captures face images from multiple angles and creates embeddings
+2. **Recognition Mode**: Detects and recognizes faces in real-time
+3. **Authentication Mode**: Provides secure authentication with guide box and real-time feedback
+
+All three modes are now integrated into a single unified system accessible through the `main.py` entry point, providing a consistent user experience and shared codebase.
 
 ## 2. User Registration Flow
 
@@ -111,58 +113,69 @@ The face recognition system on Jetson Orin Nano X consists of three main flows:
 **Authentication Demo Usage**:
 ```bash
 # Run facial authentication (single mode)
-python facial_auth_demo.py --mode auth --threshold 0.65
+python main.py --mode authentication --auth-mode single --threshold 0.65
 
 # Run continuous authentication for 60 seconds
-python facial_auth_demo.py --mode continuous --duration 60 --threshold 0.65
+python main.py --mode authentication --auth-mode continuous --duration 60 --threshold 0.65
 
 # Enable enhanced security features
-python facial_auth_demo.py --mode auth --threshold 0.65 --liveness --matches 5
+python main.py --mode authentication --auth-mode single --threshold 0.65 --liveness --matches 5
 
 # Run in continuous mode indefinitely (until manually stopped)
-python facial_auth_demo.py --mode continuous --duration 0 --threshold 0.7
+python main.py --mode authentication --auth-mode continuous --duration 0 --threshold 0.7
 ```
 
 **Advanced Configuration Options**:
 ```
---mode        : Authentication mode (auth or continuous)
+--mode        : Operating mode (registration, recognition, authentication)
+--auth-mode   : Authentication mode (single, continuous)
 --duration    : Duration for continuous mode in seconds (0 for infinite)
 --threshold   : Recognition threshold (0.0-1.0)
 --liveness    : Enable liveness detection for enhanced security
 --matches     : Number of consecutive matches required for authentication
 --timeout     : Authentication timeout in seconds
 --attempts    : Maximum number of authentication attempts
+--monitor     : Enable system performance monitoring
+--report      : Generate detailed authentication report
 ```
 
 ## 5. Project Structure and Execution Flow
 
 ```
 ┌─────────────────┐      ┌───────────────────┐      ┌──────────────────────┐
-│ CLI Interface   │      │ main.py           │      │ Project/run.py       │
-│ (command line)  ├─────►│ (entry point)     ├─────►│ (core application)   │
-└─────────────────┘      └───────────────────┘      └──────────┬───────────┘
+│ CLI Interface   │      │ main.py           │      │ Core Application     │
+│ (command line)  ├─────►│ (unified entry    ├─────►│ (mode-specific       │
+└─────────────────┘      │  point)           │      │  implementations)    │
+                         └───────────────────┘      └──────────┬───────────┘
                                                                │
                           ┌────────────────────────────────────┼────────────────┐
                           │                                    │                │
-                     ┌────▼─────────┐                    ┌─────▼──────────┐    │
-                     │ registration │                    │ recognition    │    │
-                     │ (register)   │                    │ (recognize)    │    │
-                     └──────┬───────┘                    └────────┬───────┘    │
-                            │                                     │            │
-                     ┌──────▼───────┐                    ┌────────▼───────┐    │
-                     │ HeadPoseModel│                    │ Detector      │    │
-                     │ (multi-angle │                    │ (face         │    │
-                     │  capture)    │                    │  detection)   │    │
-                     └──────┬───────┘                    └────────┬───────┘    │
-                            │                                     │            │
-                            └─────────────┬─────────────┬─────────┘            │
-                                          │             │                      │
-                                    ┌─────▼─────┐ ┌─────▼──────┐               │
-                                    │ face_utils│ │ database   │               │
-                                    │ (image    │ │ (data      │◄──────────────┘
+                     ┌────▼─────────┐                    ┌─────▼──────────┐     │
+                     │ Registration │                    │ Recognition    │     │
+                     │ Mode         │                    │ Mode           │     │
+                     └──────┬───────┘                    └────────┬───────┘     │
+                            │                                     │             │ 
+                     ┌──────▼───────┐                    ┌────────▼───────┐     │
+                     │ HeadPoseModel│                    │ Detector       │     │    ┌──────────────┐
+                     │ (multi-angle │                    │ (face          │     │    │Authentication│
+                     │  capture)    │                    │  detection)    │     ├───►│Mode          │
+                     └──────┬───────┘                    └────────┬───────┘     │    └───────┬──────┘
+                            │                                     │             │            │
+                            └─────────────┬─────────────┬─────────┘             │      ┌─────▼─────┐
+                                          │             │                       │      │ Auth      │
+                                    ┌─────▼─────┐ ┌─────▼──────┐                │      │ System    │
+                                    │ face_utils│ │ database   │◄───────────────┘      │           │
+                                    │ (image    │ │ (data      │                       └───────────┘
                                     │  process) │ │  storage)  │
                                     └───────────┘ └────────────┘
 ```
+
+The consolidated system architecture now features:
+
+- **Unified Entry Point**: `main.py` serves as the single entry point for all three operating modes
+- **Shared Components**: Core utilities like face detection, database access, and image processing are shared across all modes
+- **Mode-Specific Implementations**: Each mode (registration, recognition, authentication) has specialized code while leveraging common components
+- **Command-Line Interface**: `face_recognition_cli.py` provides a simplified interface to the main functionality
 
 ## 6. Usage
 
@@ -174,6 +187,12 @@ python face_recognition_cli.py register <username>
 
 # Recognize faces
 python face_recognition_cli.py recognize
+
+# Authenticate a user (single mode)
+python face_recognition_cli.py authenticate
+
+# Authenticate continuously for 60 seconds
+python face_recognition_cli.py authenticate --mode continuous --duration 60
 ```
 
 ### Using Python commands directly:
@@ -184,6 +203,15 @@ python main.py --mode registration --username <username>
 
 # Recognize faces
 python main.py --mode recognition
+
+# Authenticate a user (single mode)
+python main.py --mode authentication --auth-mode single
+
+# Authenticate continuously for 60 seconds
+python main.py --mode authentication --auth-mode continuous --duration 60
+
+# Authenticate with enhanced security features
+python main.py --mode authentication --liveness --matches 5
 ```
 
 ## 7. Deployment on Jetson Orin Nano X
@@ -204,7 +232,7 @@ python main.py --mode recognition
    - Performance reporting for optimization
    ```bash
    # Monitor system performance during authentication
-   python advanced_auth_demo.py --monitor --report
+   python main.py --mode authentication --monitor --report
    ```
 
 4. **Hardware Optimization**:
@@ -220,27 +248,6 @@ python main.py --mode recognition
    sudo jtop
    ```
 
-5. **Run Application**:
-   - Use commands from section 6
-   - Can be set up as a service to start automatically on boot
-   ```bash
-   # Create systemd service
-   sudo nano /etc/systemd/system/facial-auth.service
-   
-   # Example service file content
-   [Unit]
-   Description=Facial Authentication System
-   After=network.target
-   
-   [Service]
-   User=<username>
-   WorkingDirectory=/path/to/Face-Recognition
-   ExecStart=/path/to/Face-Recognition/venv/bin/python advanced_auth_demo.py --mode continuous --duration 0
-   Restart=on-failure
-   
-   [Install]
-   WantedBy=multi-user.target
-   ```
 
 ## 8. Advanced Usage
 
@@ -267,7 +274,7 @@ The system includes performance monitoring tools specifically designed for Jetso
 python system_monitor.py --interval 0.5 --output ./monitoring_data
 
 # Monitoring during authentication
-python advanced_auth_demo.py --monitor --report
+python main.py --mode authentication --monitor --report
 ```
 
 ### Authentication Reporting
@@ -276,7 +283,7 @@ The advanced authentication demo can generate detailed reports on authentication
 
 ```bash
 # Generate authentication report
-python advanced_auth_demo.py --report --output ./reports
+python main.py --mode authentication --report --output ./reports
 ```
 
 This creates a JSON report containing:
