@@ -1,49 +1,5 @@
 [
   {
-    "id": 1,
-    "name": "1",
-    "age": "1",
-    "major": "1",
-    "course": "1",
-    "gmail": "1",
-    "phone": "1",
-    "image": "database\\images\\user_1.jpg",
-    "embedding": "database\\embeddings\\user_1.npy"
-  },
-  {
-    "id": 2,
-    "name": "bean",
-    "age": "16",
-    "major": "haha",
-    "course": "ai",
-    "gmail": "cc",
-    "phone": "09",
-    "image": "database\\images\\user_2.jpg",
-    "embedding": "database\\embeddings\\user_2.npy"
-  },
-  {
-    "id": 3,
-    "name": "test_user",
-    "age": "22",
-    "major": "22",
-    "course": "22",
-    "gmail": "22",
-    "phone": "22",
-    "image": "database\\images\\user_3.jpg",
-    "embedding": "database\\embeddings\\user_3.npy"
-  },
-  {
-    "id": 4,
-    "name": "Dung",
-    "age": "cc",
-    "major": "cc",
-    "course": "ccc",
-    "gmail": "cc",
-    "phone": "c",
-    "image": "database\\images\\user_4.jpg",
-    "embedding": "database\\embeddings\\user_4.npy"
-  },
-  {
     "id": 5,
     "name": "loc",
     "age": "cc",
@@ -53,5 +9,27 @@
     "phone": "c",
     "image": "database\\images\\user_5.jpg",
     "embedding": "database\\embeddings\\user_5.npy"
+  },
+  {
+    "id": 2,
+    "name": "Dung",
+    "age": "1",
+    "major": "1",
+    "course": "1",
+    "gmail": "1",
+    "phone": "1",
+    "image": "database\\images\\user_2.jpg",
+    "embedding": "database\\embeddings\\user_2.npy"
+  },
+  {
+    "id": 3,
+    "name": "giap",
+    "age": "1",
+    "major": "2",
+    "course": "3",
+    "gmail": "4",
+    "phone": "5",
+    "image": "database\\images\\user_3.jpg",
+    "embedding": "database\\embeddings\\user_3.npy"
   }
 ]

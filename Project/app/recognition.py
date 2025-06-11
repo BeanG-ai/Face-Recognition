@@ -2,7 +2,7 @@ import time
 import cv2
 import numpy as np
 import onnxruntime as ort
-from Project.utils.face_utils import get_face, preprocess_face
+from Project.utils.face_utils import preprocess_face
 import sys
 import os
 from Project.utils.database_utils import find_user_by_embedding
@@ -14,15 +14,23 @@ class Recognizer:
     def __init__(self, model_path):
         self.session = ort.InferenceSession(model_path, providers=['CPUExecutionProvider'])
         self.det_times, self.emb_times = [], []
+        # Initialize the detector
+        self.detector = FaceDetector(model_path)
 
     def detect_and_embed(self, frame):
-        # Detect face
+        # Detect face using MediaPipe detector
         t0 = time.perf_counter()
-        face, box = get_face(frame)
+        detection_result = self.detector.detect_frame(frame)
+        bboxes = detection_result.bboxes
         dt = time.perf_counter() - t0
         self.det_times.append(dt)
-        if face is None:
+        
+        if not bboxes:
             return None, None, dt, None
+            
+        # Get the first face
+        x, y, w, h = bboxes[0]
+        face = frame[y:y+h, x:x+w]
 
         # Embed
         inp = preprocess_face(face)
@@ -40,6 +48,11 @@ class Recognizer:
                 'avg_embed_ms': np.mean(self.emb_times)*1000
             }
         return {}
+        
+    def close(self):
+        """Release detector resources"""
+        if hasattr(self, 'detector'):
+            self.detector.close()
 
 class FaceRecognitionApp:
     """
@@ -113,8 +126,7 @@ class FaceRecognitionApp:
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
                 except Exception as e:
                     print(f"Error processing face: {e}")
-            
-            # Display the frame
+              # Display the frame
             cv2.imshow("Face Recognition", annotated_frame)
             
             # Exit on 'q' key press

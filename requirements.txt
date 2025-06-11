@@ -2,3 +2,9 @@ opencv-python>=4.5.0
 numpy>=1.19.0
 mediapipe>=0.10.0
 onnxruntime>=1.10.0
+psutil>=5.9.0
+matplotlib>=3.5.0
+tqdm>=4.64.0
+pillow>=9.0.0
+# For CUDA support on Jetson devices
+# jetson-stats>=3.1.0  # Uncomment when deploying to Jetson hardware

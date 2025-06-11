@@ -24,6 +24,7 @@ var/
 Project/database/embeddings/*.npy
 Project/database/images/*.jpg
 Project/database/images/*/*.jpg
+Project/database/user_db.json
 
 # VS Code
 .vscode/
