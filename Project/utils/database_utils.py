@@ -65,3 +65,20 @@ def find_user_by_embedding(embedding, threshold=0.6):
         if score > best_score:
             best_score, best_match = score, rec
     return best_match, best_score
+
+def get_user_info(user_id):
+    """
+    Trả về record user (dict) từ user_db.json theo id,
+    hoặc None nếu không tìm thấy.
+    """
+    db = load_database()
+    try:
+        uid = int(user_id)
+    except ValueError:
+        return None
+
+    for rec in db:
+        if rec.get('id') == uid:
+            return rec
+    return None
+

@@ -7,17 +7,19 @@ from Project.utils.face_utils import save_face_image
 import sys
 import onnxruntime as ort
 
+
 # Import HeadPoseModel and Detector from utils
 from Project.utils.HeadPoseModel import HeadPoseEnrollment
 from Project.utils.Detector import FaceDetector
 from Project.utils.face_utils import preprocess_face
+from Project.utils.vector_store import FaissStore
 
 class Registrar:
-    def __init__(self, threshold=0.6):
-        self.threshold = threshold
+    def __init__(self, vector_store: FaissStore):  # ADDED: accept vector_store
+        self.vector_store = vector_store
 
-    def match(self, emb):
-        user, score = find_user_by_embedding(emb, threshold=self.threshold)
+    def match(self, emb: np.ndarray):
+        user, score = find_user_by_embedding(emb, threshold=self.vector_store.dim)
         return user, score
 
     def register_new(self, face_img, emb, name=None, age=None, major=None, course=None, gmail=None, phone=None):
@@ -37,6 +39,12 @@ class Registrar:
         
         uid = add_user(name, age, major, course, gmail, phone, emb)
         save_face_image(face_img, uid)
+
+        # Normalize embedding and add to FAISS
+        emb_norm = emb.astype(np.float32)  # ADDED: prepare embedding for FAISS
+        emb_norm /= np.linalg.norm(emb_norm)  # ADDED: normalize embedding
+        self.vector_store.add(uid, emb_norm)  # ADDED: add embedding to FAISS
+
         print(f'Registered #{uid}: {name}')
         return uid
 
@@ -52,7 +60,16 @@ class FaceRegistrationApp:
         
         # Initialize embedding model
         self.session = ort.InferenceSession(embedding_model_path, providers=['CPUExecutionProvider'])
-        self.registrar = Registrar()
+        # Determine embedding dimension from model output
+        emb_dim = self.session.get_outputs()[0].shape[1]  # ADDED: get embedding dimension
+         # Initialize FAISS vector store
+        faiss_index = os.path.join(database_path, 'faiss.index')  # ADDED: define index path
+        faiss_meta = os.path.join(database_path, 'faiss_meta.json')  # ADDED: define metadata path
+        self.vector_store = FaissStore(dim=emb_dim, index_path=faiss_index, meta_path=faiss_meta)  # ADDED: init FAISS store
+
+        # Initialize registrar with vector store
+        self.registrar = Registrar(self.vector_store)  # ADDED: pass vector_store to registrar
+        
         
     def extract_embedding(self, face_img):
         """Extract face embedding using the embedding model."""
@@ -127,7 +144,8 @@ class FaceRegistrationApp:
                 # Register the new user with the average embedding
                 # Using the first captured image as the face image
                 first_image = cv2.imread(list(enrollment.captured_images.values())[0])
-                self.registrar.register_new(first_image, avg_embedding, name=user_name)
+                self.registrar.register_new(first_image, avg_embedding, name=user_name)  # ADDED: FAISS registration
+                # self.registrar.register_new(first_image, avg_embedding, name=user_name)
                 
                 print(f"User {user_name} has been registered successfully with multi-angle face data.")
             else:

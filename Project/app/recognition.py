@@ -6,6 +6,9 @@ from Project.utils.face_utils import preprocess_face
 import sys
 import os
 from Project.utils.database_utils import find_user_by_embedding
+from Project.utils.database_utils import get_user_info  # UPDATED: use database_utils for metadata lookup
+from Project.utils.vector_store import FaissStore  # ADDED: import FAISS vector store
+from Project.utils.Detector import FaceDetector
 
 # Import Detector from utils
 from Project.utils.Detector import FaceDetector
@@ -13,6 +16,15 @@ from Project.utils.Detector import FaceDetector
 class Recognizer:
     def __init__(self, model_path):
         self.session = ort.InferenceSession(model_path, providers=['CPUExecutionProvider'])
+            # ADDED: initialize FAISS
+        emb_dim = self.session.get_outputs()[0].shape[1]
+        faiss_index = os.path.join(self.database_path, 'faiss.index')
+        faiss_meta  = os.path.join(self.database_path, 'faiss_meta.json')
+        self.vector_store = FaissStore(dim=emb_dim,
+                                   index_path=faiss_index,
+                                   meta_path=faiss_meta)
+            # END OF ADDED
+
         self.det_times, self.emb_times = [], []
         # Initialize the detector
         self.detector = FaceDetector(model_path)
@@ -66,7 +78,13 @@ class FaceRecognitionApp:
         
         # Initialize embedding model
         self.session = ort.InferenceSession(embedding_model_path, providers=['CPUExecutionProvider'])
-        
+        # Determine embedding dimension
+        emb_dim = self.session.get_outputs()[0].shape[1]  # ADDED: get embedding dimension
+
+        # Initialize FAISS vector store
+        faiss_index = os.path.join(database_path, 'faiss.index')  # ADDED: FAISS index path
+        faiss_meta = os.path.join(database_path, 'faiss_meta.json')  # ADDED: FAISS metadata path
+        self.vector_store = FaissStore(dim=emb_dim, index_path=faiss_index, meta_path=faiss_meta)  # ADDED: init FAISS store
     def extract_embedding(self, face_img):
         """Extract face embedding using the embedding model."""
         inp = preprocess_face(face_img)
@@ -103,24 +121,23 @@ class FaceRecognitionApp:
             for i, (x, y, w, h) in enumerate(bboxes):
                 # Extract face region
                 face_img = frame[y:y+h, x:x+w]
-                
+
                 # Get embedding
                 try:
                     emb = self.extract_embedding(face_img)
-                    
-                    # Find matching user in database
-                    user, score = find_user_by_embedding(emb, threshold=self.threshold)
-                    
-                    # Display result
-                    if user:
-                        # Found a match
+                    # Normalize and search FAISS
+                    emb_norm = emb.astype(np.float32)  # ADDED: prepare embedding for FAISS
+                    emb_norm /= np.linalg.norm(emb_norm)  # ADDED: normalize embedding
+                    results = self.vector_store.search(emb_norm, top_k=1)  # ADDED: FAISS search
+                    if results and results[0][1] >= self.threshold:
+                        user_id, score = results[0]  # ADDED: unpack FAISS result
+                        user = get_user_info(user_id)  # UPDATED: fetch user metadata
                         label = f"{user['name']} ({score:.2f})"
-                        color = (0, 255, 0)  # Green for match
+                        color = (0, 255, 0)
                     else:
-                        # No match found
                         label = "Unknown"
-                        color = (0, 0, 255)  # Red for unknown
-                        
+                        color = (0, 0, 255)
+                    
                     # Draw label on the frame
                     cv2.putText(annotated_frame, label, (x, y-10), 
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
