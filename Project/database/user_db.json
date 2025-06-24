@@ -1,35 +1,13 @@
 [
   {
-    "id": 5,
-    "name": "loc",
-    "age": "cc",
-    "major": "cc",
-    "course": "cc",
-    "gmail": "ccc",
-    "phone": "c",
-    "image": "database\\images\\user_5.jpg",
-    "embedding": "database\\embeddings\\user_5.npy"
-  },
-  {
-    "id": 2,
-    "name": "Dung",
-    "age": "1",
-    "major": "1",
-    "course": "1",
-    "gmail": "1",
-    "phone": "1",
-    "image": "database\\images\\user_2.jpg",
-    "embedding": "database\\embeddings\\user_2.npy"
-  },
-  {
-    "id": 3,
-    "name": "giap",
-    "age": "1",
-    "major": "2",
-    "course": "3",
-    "gmail": "4",
-    "phone": "5",
-    "image": "database\\images\\user_3.jpg",
-    "embedding": "database\\embeddings\\user_3.npy"
+    "id": 1,
+    "name": "Duc",
+    "age": "22",
+    "major": "ạu",
+    "course": "á",
+    "gmail": "á",
+    "phone": "",
+    "image": "database\\images\\user_1.jpg",
+    "embedding": "database\\embeddings\\user_1.npy"
   }
 ]

@@ -9,6 +9,10 @@ A comprehensive facial recognition and authentication system optimized for NVIDI
   - **Recognition**: Real-time face detection and identification of multiple faces
   - **Authentication**: Secure verification with positioning guidance and feedback
 
+- **Vector Similarity Search**:
+  - Integrated FAISS for efficient and scalable nearest neighbor search of face embeddings
+  - Fast retrieval and matching in large-scale face databases
+
 - **Face Detection & Recognition**:
   - Fast and accurate face detection using optimized models
   - Feature extraction using Inception ResNet v1
@@ -56,6 +60,7 @@ face-recognition/
     │   ├── Detector.py       # Face detection
     │   ├── HeadPoseModel.py  # Multi-angle face capture
     │   └── authentication.py # Facial authentication system
+         └── faiss_utils.py # FAISS vector database utilities
     │
     ├── models/            # Model files
     │   ├── blaze_face_short_range.tflite # Detection model
@@ -65,6 +70,8 @@ face-recognition/
         ├── user_db.json   # User information
         ├── embeddings/    # Face embeddings
         └── images/        # Face images
+        ├── faiss.index    # FAISS index file storing vector embeddings for fast similarity search
+         └── faiss_meta.json    # Metadata mapping FAISS vector IDs to user information
 ```
 
 ## System Requirements
@@ -76,7 +83,7 @@ face-recognition/
 
 ## Quick Start
 
-### Installation
+### Installationn    
 
 1. Clone this repository:
    ```bash
