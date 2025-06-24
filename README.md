@@ -60,7 +60,7 @@ face-recognition/
     │   ├── Detector.py       # Face detection
     │   ├── HeadPoseModel.py  # Multi-angle face capture
     │   └── authentication.py # Facial authentication system
-         └── faiss_utils.py # FAISS vector database utilities
+         └── vector_store.py # FAISS vector database utilities
     │
     ├── models/            # Model files
     │   ├── blaze_face_short_range.tflite # Detection model
