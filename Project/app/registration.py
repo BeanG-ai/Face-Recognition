@@ -15,15 +15,43 @@ from Project.utils.face_utils import preprocess_face
 from Project.utils.vector_store import FaissStore
 
 class Registrar:
-    def __init__(self, vector_store: FaissStore):  # ADDED: accept vector_store
+    def __init__(self, vector_store, similarity_threshold: float = 0.7):
+        """
+        vector_store: instance của FaissStore
+        similarity_threshold: ngưỡng inner‐product (cosine similarity) giữa two unit embeddings
+        """
         self.vector_store = vector_store
+        self.similarity_threshold = similarity_threshold
+
+    def _normalize(self, emb: np.ndarray) -> np.ndarray:
+        emb = emb.astype(np.float32)
+        return emb / np.linalg.norm(emb)
 
     def match(self, emb: np.ndarray):
-        user, score = find_user_by_embedding(emb, threshold=self.vector_store.dim)
-        return user, score
+        """
+        Trả về (user_id, score) nếu người gần nhất có score >= threshold,
+        ngược lại trả (None, None).
+        """
+        emb_norm = self._normalize(emb)
+        # Lưu ý: truyền theo vị trí, không dùng k=
+        results = self.vector_store.search(emb_norm, 1)
+        if results:
+            user_id, score = results[0]
+            if score >= self.similarity_threshold:
+                return user_id, score
+        return None, None
 
     def register_new(self, face_img, emb, name=None, age=None, major=None, course=None, gmail=None, phone=None):
         print('=== Register New User ===')
+
+        emb_norm = self._normalize(emb)
+
+        # 1) nếu đã có thì thôi
+        existing_uid, score = self.match(emb_norm)
+        if existing_uid is not None:
+            print(f"User đã tồn tại (UID={existing_uid}, similarity={score:.4f}), không thêm mới.")
+            return existing_uid
+        # 2) nếu chưa có thì yêu cầu nhập thông tin
         if name is None:
             name = input('Name: ')
         if age is None:
@@ -125,30 +153,46 @@ class FaceRegistrationApp:
         enrollment.close()
         cv2.destroyAllWindows()
         
+
         if enrollment.is_completed():
             print("Registration completed successfully!")
-            
-            # Process captured images to extract embeddings
+
+            # 1) Tạo danh sách embeddings
             all_embeddings = []
-            for stage, image_path in enrollment.captured_images.items():
-                img = cv2.imread(image_path)
+            for img_path in enrollment.captured_images.values():
+                img = cv2.imread(img_path)
                 if img is not None:
-                    # Generate embedding
                     emb = self.extract_embedding(img)
                     all_embeddings.append(emb)
-            
-            # Average the embeddings for a more robust representation
-            if all_embeddings:
-                avg_embedding = np.mean(all_embeddings, axis=0)
+
+            if not all_embeddings:
+                print("Error: Failed to generate embeddings.")
+                return
+
+            avg_embedding = np.mean(all_embeddings, axis=0)
+            first_image = cv2.imread(list(enrollment.captured_images.values())[0])
+
+            # 2) Kiểm tra xem user đã tồn tại chưa
+            existing_uid, score = self.registrar.match(avg_embedding)
+            if existing_uid is not None:
+                print(f"User đã tồn tại (UID={existing_uid}, similarity={score:.4f}), không thêm mới.")
                 
-                # Register the new user with the average embedding
-                # Using the first captured image as the face image
-                first_image = cv2.imread(list(enrollment.captured_images.values())[0])
-                self.registrar.register_new(first_image, avg_embedding, name=user_name)  # ADDED: FAISS registration
-                # self.registrar.register_new(first_image, avg_embedding, name=user_name)
-                
-                print(f"User {user_name} has been registered successfully with multi-angle face data.")
-            else:
-                print("Error: Failed to generate embeddings from captured images.")
+                # 3) Xóa toàn bộ ảnh đã capture (tránh sao chép)
+                for img_path in enrollment.captured_images.values():
+                    try:
+                        os.remove(img_path)
+                    except OSError:
+                        pass
+                # (tuỳ chọn) xóa cả thư mục nếu rỗng:
+                user_dir = os.path.dirname(list(enrollment.captured_images.values())[0])
+                if os.path.isdir(user_dir) and not os.listdir(user_dir):
+                    os.rmdir(user_dir)
+
+                print("Đã xóa các ảnh tạm do user đã tồn tại.")
+                return
+
+            # 4) Nếu chưa có, đăng ký mới như trước
+            self.registrar.register_new(first_image, avg_embedding, name=user_name)
+            print(f"User {user_name} has been registered successfully with multi-angle face data.")
         else:
             print("Registration was not completed.")
