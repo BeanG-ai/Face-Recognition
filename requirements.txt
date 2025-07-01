@@ -8,6 +8,14 @@ tqdm>=4.64.0
 pillow>=9.0.0
 tensorflow>=2.6.0
 faiss-cpu>=1.7.0
-# For CUDA support on Jetson and other GPU systems
+onnx>=1.12.0  # For ONNX model inspection and optimization
+
+# For CUDA and TensorRT support (optional but recommended for acceleration)
+# nvidia-pyindex  # Required for installing nvidia packages
+# pycuda>=2022.1  # Required for TensorRT
+# nvidia-tensorrt  # TensorRT Python bindings
+# onnxruntime-gpu  # GPU-accelerated ONNX Runtime
+
+# For Jetson-specific optimizations (only on Jetson hardware)
 # jetson-stats>=3.1.0  # For Jetson hardware monitoring
-# faiss-gpu>=1.7.0  # For GPU acceleration of vector search (remove faiss-cpu first)
+# faiss-gpu>=1.7.0  # GPU acceleration of vector search (remove faiss-cpu first)

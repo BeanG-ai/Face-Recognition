@@ -12,6 +12,7 @@ Features:
 - Face Authentication: Secure verification with positioning guidance
 - Performance Optimization: CUDA acceleration on Jetson hardware
 - System Monitoring: Resource tracking for performance analysis
+- TensorRT Acceleration: Optimized inference with FP16 precision
 """
 
 import os
@@ -37,6 +38,9 @@ except ImportError:
     MONITORING_AVAILABLE = False
     print("Info: system_monitor.py not found. Performance monitoring will be disabled.")
 
+# Check TensorRT availability
+from Project.utils.tensorrt_utils import is_tensorrt_available, is_pycuda_available
+
 def parse_args():
     """Parse command line arguments for the application."""
     parser = argparse.ArgumentParser(description='Unified Face Recognition and Authentication System')
@@ -55,6 +59,10 @@ def parse_args():
                        help='Authentication mode: single (one-time) or continuous')
     parser.add_argument('--duration', type=int, default=30,
                        help='Duration for continuous authentication mode in seconds (0 for infinite)')
+    parser.add_argument('--auth-duration', type=int, default=10,
+                       help='How long each authentication remains valid in continuous mode (seconds)')
+    parser.add_argument('--stability', type=int, default=2, choices=[1, 2, 3],
+                       help='Stability level: 1=strict, 2=balanced, 3=tolerant. Affects how the system handles unstable recognition')
     parser.add_argument('--liveness', action='store_true',
                        help='Enable liveness detection for enhanced security')
     parser.add_argument('--matches', type=int, default=3,
@@ -63,10 +71,16 @@ def parse_args():
     # General options
     parser.add_argument('--threshold', type=float, default=0.65,
                        help='Recognition threshold (0.0-1.0)')
-    parser.add_argument('--timeout', type=int, default=10,
+    parser.add_argument('--timeout', type=int, default=2,
                        help='Authentication timeout in seconds')
     parser.add_argument('--attempts', type=int, default=3,
                        help='Maximum number of authentication attempts')
+    
+    # TensorRT optimization options
+    parser.add_argument('--use-tensorrt', action='store_true', default=False,
+                       help='Use TensorRT acceleration if available')
+    parser.add_argument('--precision', type=str, default='fp16', choices=['fp16', 'fp32'],
+                       help='Precision to use for TensorRT models')
     
     # System monitoring and reporting
     parser.add_argument('--monitor', action='store_true',
@@ -97,6 +111,31 @@ def check_models_exist(detector_path, embedding_path):
     
     return True
 
+def check_tensorrt_models(base_dir, precision):
+    """Check if TensorRT optimized models exist and inform the user."""
+    models_dir = os.path.join(base_dir, "Project", "models")
+    
+    # Check for optimized TensorRT models
+    blazeface_trt = os.path.join(models_dir, f"blazeface_{precision}.trt")
+    inception_trt = os.path.join(models_dir, f"inception_resnet_v1_{precision}.trt")
+    
+    trt_available = is_tensorrt_available() and is_pycuda_available()
+    
+    if trt_available:
+        print("\nTensorRT and PyCUDA are available on this system.")
+        
+        if os.path.exists(blazeface_trt) and os.path.exists(inception_trt):
+            print(f"✓ Optimized TensorRT models with {precision} precision are available.")
+        else:
+            print(f"! Optimized TensorRT models with {precision} precision are not found.")
+            print("  The system will attempt to use ONNX models as fallback.")
+            print("  To optimize models, run: python optimize_face_models.py")
+    else:
+        print("\nTensorRT or PyCUDA is not available on this system.")
+        print("The system will use ONNX Runtime instead.")
+        
+    return trt_available
+
 def generate_auth_report(args, auth_results, session_duration, output_dir=None):
     """Generate a detailed authentication report."""
     if output_dir:
@@ -120,7 +159,9 @@ def generate_auth_report(args, auth_results, session_duration, output_dir=None):
             "required_matches": args.matches,
             "max_attempts": args.attempts,
             "timeout": args.timeout,
-            "continuous_duration": args.duration if args.auth_mode == "continuous" else "N/A"
+            "continuous_duration": args.duration if args.auth_mode == "continuous" else "N/A",
+            "tensorrt_enabled": args.use_tensorrt,
+            "precision": args.precision
         },
         "results": auth_results
     }
@@ -163,6 +204,9 @@ def run_authentication(args, detector_model_path, embedding_model_path, monitor=
     print(f"Security threshold: {args.threshold}")
     print(f"Required consecutive matches: {args.matches}")
     print(f"Liveness detection: {'Enabled' if args.liveness else 'Disabled'}")
+    print(f"TensorRT acceleration: {'Enabled' if args.use_tensorrt else 'Disabled'}")
+    if args.use_tensorrt:
+        print(f"Precision: {args.precision}")
     
     if args.auth_mode == 'continuous':
         print(f"Duration: {args.duration}s {'(infinite)' if args.duration == 0 else ''}")
@@ -179,7 +223,10 @@ def run_authentication(args, detector_model_path, embedding_model_path, monitor=
         embedding_model_path=embedding_model_path,
         threshold=args.threshold,
         max_attempts=args.attempts,
-        timeout=args.timeout
+        timeout=args.timeout,
+        use_tensorrt=args.use_tensorrt,
+        precision=args.precision,
+        stability_level=args.stability
     )
     
     # Set authentication parameters
@@ -196,9 +243,13 @@ def run_authentication(args, detector_model_path, embedding_model_path, monitor=
         
         if args.auth_mode == 'continuous':
             print(f"Starting continuous authentication for {args.duration}s {'(infinite)' if args.duration == 0 else ''}")
+            print(f"Authentication validity period: {args.auth_duration}s")
             print("Press 'q' to exit at any time")
             
-            authenticated_users = auth_system.authenticate_continuous(duration=args.duration)
+            authenticated_users = auth_system.authenticate_continuous(
+                duration=args.duration,
+                auth_duration=args.auth_duration
+            )
             auth_results = {"authenticated_users": authenticated_users}
             
             if authenticated_users:
@@ -257,6 +308,10 @@ def main():
     if not check_models_exist(detector_model_path, embedding_model_path):
         return
     
+    # Check for TensorRT models
+    if args.use_tensorrt:
+        check_tensorrt_models(base_dir, args.precision)
+    
     # Setup performance monitoring if requested
     monitor = None
     if args.monitor and MONITORING_AVAILABLE and args.mode == 'authentication':
@@ -275,7 +330,9 @@ def main():
                 detector_model_path=detector_model_path,
                 embedding_model_path=embedding_model_path,
                 database_path=db_path,
-                username=args.username
+                username=args.username,
+                use_tensorrt=args.use_tensorrt,
+                precision=args.precision
             )
             app.run()
             
@@ -285,7 +342,9 @@ def main():
                 detector_model_path=detector_model_path,
                 embedding_model_path=embedding_model_path,
                 database_path=db_path,
-                threshold=args.threshold
+                threshold=args.threshold,
+                use_tensorrt=args.use_tensorrt,
+                precision=args.precision
             )
             app.run()
             

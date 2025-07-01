@@ -26,6 +26,37 @@ else
     fi
 fi
 
+# Check for TensorRT (Optional)
+echo "Checking for TensorRT (optional acceleration)..."
+if python -c "import tensorrt" &> /dev/null; then
+    echo "TensorRT is already installed."
+    
+    # Check if PyCUDA is installed
+    if python -c "import pycuda" &> /dev/null; then
+        echo "PyCUDA is already installed."
+    else
+        echo "Installing PyCUDA (required for TensorRT)..."
+        pip install pycuda
+    fi
+else
+    echo "TensorRT not detected. For GPU acceleration, you can install TensorRT:"
+    echo "  1. Install CUDA and cuDNN for your GPU"
+    
+    if [ -f "/etc/nv_tegra_release" ]; then
+        # This is a Jetson device
+        echo "  2. On Jetson: sudo apt-get install -y tensorrt"
+        echo "  3. Run: pip install nvidia-pyindex pycuda"
+        echo "  4. Optimize models: ./optimize_models.sh"
+    else
+        # Regular Linux
+        echo "  2. Run: pip install nvidia-pyindex"
+        echo "  3. Run: pip install nvidia-tensorrt pycuda"
+        echo "  4. Optimize models: ./optimize_models.sh"
+    fi
+    
+    echo "System will run with ONNX Runtime without TensorRT."
+fi
+
 # Create project directories
 echo "Creating project structure..."
 python setup_project.py

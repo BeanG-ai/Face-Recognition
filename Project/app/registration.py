@@ -7,6 +7,8 @@ from Project.utils.face_utils import save_face_image
 import sys
 import onnxruntime as ort
 
+# Import TensorRT utilities
+from Project.utils.tensorrt_utils import load_optimized_model
 
 # Import HeadPoseModel and Detector from utils
 from Project.utils.HeadPoseModel import HeadPoseEnrollment
@@ -80,17 +82,37 @@ class FaceRegistrationApp:
     """
     Application for registering new users with multi-angle face captures.
     """
-    def __init__(self, detector_model_path, embedding_model_path, database_path, username=None):
+    def __init__(self, detector_model_path, embedding_model_path, database_path, username=None, use_tensorrt=True, precision='fp16'):
         self.detector_model_path = detector_model_path
         self.embedding_model_path = embedding_model_path
         self.database_path = database_path
         self.username = username
+        self.use_tensorrt = use_tensorrt
+        self.precision = precision
         
-        # Initialize embedding model
-        self.session = ort.InferenceSession(embedding_model_path, providers=['CPUExecutionProvider'])
-        # Determine embedding dimension from model output
-        emb_dim = self.session.get_outputs()[0].shape[1]  # ADDED: get embedding dimension
-         # Initialize FAISS vector store
+        # Initialize embedding model with TensorRT if available
+        if use_tensorrt:
+            try:
+                # Load optimized face recognition model
+                self.model = load_optimized_model('inception_resnet_v1', precision=precision)
+                self.using_tensorrt = True
+                print(f"Using TensorRT optimized face embedding model with {precision} precision")
+                
+                # For FAISS, we need embedding dimension - default is 512 for Inception ResNet v1
+                emb_dim = 512
+            except Exception as e:
+                print(f"Failed to load TensorRT model: {e}")
+                print("Falling back to ONNX Runtime")
+                self.using_tensorrt = False
+                self.session = ort.InferenceSession(embedding_model_path, providers=['CPUExecutionProvider'])
+                emb_dim = self.session.get_outputs()[0].shape[1]
+        else:
+            # Use ONNX Runtime
+            self.using_tensorrt = False
+            self.session = ort.InferenceSession(embedding_model_path, providers=['CPUExecutionProvider'])
+            emb_dim = self.session.get_outputs()[0].shape[1]
+            
+        # Initialize FAISS vector store
         faiss_index = os.path.join(database_path, 'faiss.index')  # ADDED: define index path
         faiss_meta = os.path.join(database_path, 'faiss_meta.json')  # ADDED: define metadata path
         self.vector_store = FaissStore(dim=emb_dim, index_path=faiss_index, meta_path=faiss_meta)  # ADDED: init FAISS store
@@ -98,11 +120,22 @@ class FaceRegistrationApp:
         # Initialize registrar with vector store
         self.registrar = Registrar(self.vector_store)  # ADDED: pass vector_store to registrar
         
-        
     def extract_embedding(self, face_img):
         """Extract face embedding using the embedding model."""
         inp = preprocess_face(face_img)
-        emb = self.session.run(None, {'input': inp})[0][0]
+        
+        # Run inference with TensorRT or ONNX Runtime
+        if self.using_tensorrt:
+            emb = self.model(inp)
+            # Check if the model returns a tuple/list and get the first element
+            if isinstance(emb, (tuple, list)):
+                emb = emb[0]
+            # The TensorRT model might return a batch, get the first item
+            if len(emb.shape) > 1:
+                emb = emb[0]
+        else:
+            emb = self.session.run(None, {'input': inp})[0][0]
+            
         return emb
         
     def run(self):
@@ -117,8 +150,10 @@ class FaceRegistrationApp:
         if not os.path.exists(user_dir):
             os.makedirs(user_dir)
         
-        # Initialize face detector
-        detector = FaceDetector(self.detector_model_path)
+        # Initialize face detector with TensorRT if available
+        detector = FaceDetector(self.detector_model_path, 
+                               use_tensorrt=self.use_tensorrt, 
+                               precision=self.precision)
         
         # Initialize head pose enrollment
         enrollment = HeadPoseEnrollment(save_path=user_dir)
@@ -153,7 +188,6 @@ class FaceRegistrationApp:
         enrollment.close()
         cv2.destroyAllWindows()
         
-
         if enrollment.is_completed():
             print("Registration completed successfully!")
 

@@ -1,23 +1,8 @@
 #!/bin/bash
 # Setup script for facial authentication system on Jetson Orin Nano X
-# This script installs all required dependencies and prepares thprint("System check complete")
+# This script installs all required dependencies and prepares the system
 
-print("\n=== HARDWARE CHECK ===\n")
-# Check Jetson-specific hardware
-try:
-    import jetson.utils
-    print("Jetson Utils: Available")
-    try:
-        import jtop
-        print("Jetson Stats: Available")
-        print("\nYou can monitor your Jetson device with: jtop")
-    except ImportError:
-        print("Jetson Stats: Not installed")
-except ImportError:
-    print("Jetson-specific packages: Not available")
-
-print("\n=== SYSTEM CHECK COMPLETE ===\n")
-EOF-e  # Exit on error
+set -e  # Exit on error
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 cd "$SCRIPT_DIR"
@@ -47,6 +32,30 @@ echo "Installing dependencies..."
 pip install --upgrade pip
 pip install -r requirements.txt
 
+# Setup for TensorRT acceleration
+echo "Setting up TensorRT acceleration..."
+if ! python3 -c "import tensorrt" &> /dev/null; then
+    echo "Installing TensorRT for Jetson..."
+    sudo apt-get update
+    sudo apt-get install -y tensorrt
+    pip install nvidia-pyindex pycuda
+    
+    # Verify TensorRT installation
+    if python3 -c "import tensorrt" &> /dev/null; then
+        echo "TensorRT installed successfully!"
+    else
+        echo "TensorRT installation failed. Please install manually:"
+        echo "  sudo apt-get install -y tensorrt"
+        echo "  pip install nvidia-pyindex pycuda"
+    fi
+else
+    echo "TensorRT is already installed."
+fi
+
+# Optimize models for TensorRT
+echo "Optimizing models for TensorRT..."
+./optimize_models.sh
+
 # Uncomment Jetson-specific packages in requirements.txt
 sed -i 's/# jetson-stats/jetson-stats/' requirements.txt
 pip install jetson-stats
@@ -58,13 +67,12 @@ pip uninstall -y onnxruntime
 # Install CUDA version if available from NVIDIA repos
 pip install --extra-index-url https://developer.download.nvidia.com/compute/redist/jp/v51 onnxruntime-gpu
 
-# Install TensorRT if not already installed
-if ! pip show tensorrt &> /dev/null; then
-    echo "Installing TensorRT..."
-    sudo apt-get update
-    sudo apt-get install -y tensorrt
-    # Link TensorRT to the Python environment
-    python3 -c "import tensorrt; print(f'TensorRT {tensorrt.__version__} installed successfully')"
+# Install PyCUDA for TensorRT optimization
+if ! pip show pycuda &> /dev/null; then
+    echo "Installing PyCUDA for TensorRT optimization..."
+    # Install build dependencies
+    sudo apt-get install -y libboost-all-dev
+    pip install pycuda
 fi
 
 # Install FAISS with GPU support for Jetson

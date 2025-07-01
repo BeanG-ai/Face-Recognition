@@ -19,6 +19,31 @@ catch {
     Write-Host "FAISS installed successfully." -ForegroundColor Green
 }
 
+# Check for TensorRT (Optional)
+Write-Host "Checking for TensorRT (optional acceleration)..." -ForegroundColor Cyan
+try {
+    python -c "import tensorrt" | Out-Null
+    Write-Host "TensorRT is already installed." -ForegroundColor Green
+    
+    # Check if PyCUDA is installed
+    try {
+        python -c "import pycuda" | Out-Null
+        Write-Host "PyCUDA is already installed." -ForegroundColor Green
+    }
+    catch {
+        Write-Host "Installing PyCUDA (required for TensorRT)..." -ForegroundColor Yellow
+        pip install pycuda
+    }
+}
+catch {
+    Write-Host "TensorRT not detected. For GPU acceleration, you can install TensorRT:" -ForegroundColor Yellow
+    Write-Host "  1. Install CUDA and cuDNN for your GPU" -ForegroundColor Yellow
+    Write-Host "  2. Run: pip install nvidia-pyindex" -ForegroundColor Yellow
+    Write-Host "  3. Run: pip install nvidia-tensorrt pycuda" -ForegroundColor Yellow
+    Write-Host "  4. Optimize models: .\optimize_models.ps1" -ForegroundColor Yellow
+    Write-Host "System will run with ONNX Runtime without TensorRT." -ForegroundColor Yellow
+}
+
 # Create project directories
 Write-Host "Creating project structure..." -ForegroundColor Cyan
 python setup_project.py

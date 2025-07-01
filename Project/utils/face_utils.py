@@ -17,23 +17,6 @@ def preprocess_face(face_img):
     img = np.transpose(img, (2, 0, 1))
     return img[np.newaxis, ...]
 
-def get_face(frame):
-    """
-    Simple face detection using OpenCV's Haar cascade.
-    For more advanced detection, use the FaceDetector class.
-    """
-    # Use a simple Haar cascade for quick detection
-    face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    faces = face_cascade.detectMultiScale(gray, 1.1, 4)
-    
-    if len(faces) == 0:
-        return None, None
-        
-    # Get the first face
-    x, y, w, h = faces[0]
-    face = frame[y:y+h, x:x+w]
-    return face, (x, y, w, h)
 
 def save_face_image(face_img, user_id):
     """

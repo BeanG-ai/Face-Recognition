@@ -6,6 +6,9 @@ from Project.utils.Detector import FaceDetector
 from Project.utils.face_utils import preprocess_face
 from Project.utils.database_utils import find_user_by_embedding
 
+# Import TensorRT utilities
+from Project.utils.tensorrt_utils import load_optimized_model
+
 class FacialAuthenticationSystem:
     """
     Hệ thống xác thực khuôn mặt với khung định vị.
@@ -14,7 +17,7 @@ class FacialAuthenticationSystem:
     Facial authentication system with a guide box interface.
     Users position their face within the designated box for authentication.
     """
-    def __init__(self, detector_model_path, embedding_model_path, threshold=0.65, max_attempts=3, timeout=10):
+    def __init__(self, detector_model_path, embedding_model_path, threshold=0.65, max_attempts=3, timeout=10, use_tensorrt=True, precision='fp16', stability_level=1):
         """
         Khởi tạo hệ thống xác thực khuôn mặt.
         
@@ -24,6 +27,9 @@ class FacialAuthenticationSystem:
             threshold: Ngưỡng nhận diện
             max_attempts: Số lần thử tối đa
             timeout: Thời gian tối đa cho mỗi lần xác thực (giây)
+            use_tensorrt: Sử dụng TensorRT tăng tốc nếu có thể
+            precision: Độ chính xác cho TensorRT (fp16 hoặc fp32)
+            stability_level: Mức độ ổn định của xác thực (1-3, cao hơn = khó mất xác thực hơn)
             
         Initialize the facial authentication system.
         
@@ -33,12 +39,29 @@ class FacialAuthenticationSystem:
             threshold: Recognition threshold
             max_attempts: Maximum number of attempts
             timeout: Maximum time for authentication (seconds)
+            use_tensorrt: Whether to use TensorRT acceleration if available
+            precision: Precision to use for TensorRT models ('fp16' or 'fp32')
+            stability_level: Stability level of authentication (1-3, higher = more resilient to failures)
         """
-        self.detector = FaceDetector(detector_model_path)
+        # Initialize face detector with TensorRT if requested
+        self.detector = FaceDetector(detector_model_path, use_tensorrt=use_tensorrt, precision=precision)
         
-        # Performance optimization for Jetson Orin Nano - use CUDA if available
-        providers = ['CUDAExecutionProvider', 'CPUExecutionProvider'] if self._is_cuda_available() else ['CPUExecutionProvider']
-        self.session = ort.InferenceSession(embedding_model_path, providers=providers)
+        # Initialize embedding model with TensorRT if requested
+        if use_tensorrt:
+            try:
+                # Load optimized face recognition model
+                self.model = load_optimized_model('inception_resnet_v1', precision=precision)
+                self.using_tensorrt = True
+                print(f"Using TensorRT optimized face embedding model with {precision} precision for authentication")
+            except Exception as e:
+                print(f"Failed to load TensorRT model: {e}")
+                print("Falling back to ONNX Runtime")
+                self.using_tensorrt = False
+                self._init_onnx_model(embedding_model_path)
+        else:
+            # Use ONNX Runtime
+            self.using_tensorrt = False
+            self._init_onnx_model(embedding_model_path)
         
         self.threshold = threshold
         self.max_attempts = max_attempts
@@ -54,6 +77,9 @@ class FacialAuthenticationSystem:
         self.last_match = None
         self.required_matches = 3  # Number of consecutive matches required for authentication
         
+        # Configure stability based on the provided level (1-3)
+        self._configure_stability(stability_level)
+        
         # Liveness detection 
         self.blink_count = 0
         self.liveness_required = False  # Set to True to enable liveness detection
@@ -63,6 +89,12 @@ class FacialAuthenticationSystem:
         self.fps = 0
         self.frame_count = 0
         self.fps_start_time = time.time()
+        
+    def _init_onnx_model(self, embedding_model_path):
+        """Initialize ONNX Runtime model as fallback"""
+        # Performance optimization for Jetson Orin Nano - use CUDA if available
+        providers = ['CUDAExecutionProvider', 'CPUExecutionProvider'] if self._is_cuda_available() else ['CPUExecutionProvider']
+        self.session = ort.InferenceSession(embedding_model_path, providers=providers)
         
     def _is_cuda_available(self):
         """Check if CUDA is available for optimized inference"""
@@ -78,7 +110,19 @@ class FacialAuthenticationSystem:
         Extract embedding from face image.
         """
         inp = preprocess_face(face_img)
-        emb = self.session.run(None, {'input': inp})[0][0]
+        
+        # Run inference with TensorRT or ONNX Runtime
+        if hasattr(self, 'using_tensorrt') and self.using_tensorrt:
+            emb = self.model(inp)
+            # Check if the model returns a tuple/list and get the first element
+            if isinstance(emb, (tuple, list)):
+                emb = emb[0]
+            # The TensorRT model might return a batch, get the first item
+            if len(emb.shape) > 1:
+                emb = emb[0]
+        else:
+            emb = self.session.run(None, {'input': inp})[0][0]
+            
         return emb
     
     def _draw_face_guide(self, frame):
@@ -236,7 +280,17 @@ class FacialAuthenticationSystem:
         
         # Hiển thị trạng thái ở phía dưới
         # Display status at the bottom
-        status_color = (0, 255, 0) if face_detected else (0, 0, 255)  # Green if detected, red if not
+        
+        # Set color based on status message content, not just face detection
+        if "AUTHENTICATED" in status:
+            status_color = (0, 255, 0)  # Green for authenticated
+        elif "Unknown face" in status:
+            status_color = (0, 0, 255)  # Red for unknown face
+        elif "Recognizing" in status or "Verifying" in status:
+            status_color = (0, 255, 255)  # Yellow for in-progress recognition
+        else:
+            # Default: Green if a face is detected in the correct position, red if not
+            status_color = (0, 255, 0) if face_detected else (0, 0, 255)
         
         # Draw background for text
         text_size, _ = cv2.getTextSize(status, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)
@@ -279,6 +333,39 @@ class FacialAuthenticationSystem:
             self.fps = self.frame_count / elapsed
             self.frame_count = 0
             self.fps_start_time = time.time()
+    
+    def _configure_stability(self, stability_level):
+        """Configure stability parameters based on the stability level.
+        
+        Args:
+            stability_level: 1=strict, 2=balanced, 3=tolerant
+        """
+        # Default values for balanced mode (level 2)
+        self.fail_tolerance = 5      # How many consecutive fails before resetting matches
+        self.auth_fail_tolerance = 10  # How many fails before invalidating authentication
+        self.no_face_tolerance = 15    # How many frames without a face before resetting
+        
+        # Adjust based on stability level
+        if stability_level == 1:  # Strict - Quick to invalidate authentication
+            self.fail_tolerance = 3
+            self.auth_fail_tolerance = 5
+            self.no_face_tolerance = 8
+        elif stability_level == 3:  # Tolerant - Very resistant to temporary failures
+            self.fail_tolerance = 8
+            self.auth_fail_tolerance = 15
+            self.no_face_tolerance = 25
+            
+        # Store the current stability level
+        self.stability_level = stability_level
+    
+    def _reset_excessive_failure_count(self):
+        """Reset failure count if it's excessive to prevent display issues and overflow"""
+        if self.consecutive_fails > self.auth_fail_tolerance * 2:
+            previous_fails = self.consecutive_fails
+            self.consecutive_fails = self.auth_fail_tolerance  # Reset to the tolerance level
+            print(f"Excessive failure count reset: {previous_fails} -> {self.consecutive_fails}")
+            return True
+        return False
     
     def authenticate(self):
         """
@@ -360,7 +447,7 @@ class FacialAuthenticationSystem:
                         
                         if self.consecutive_matches >= self.required_matches and liveness_ok:
                             # Authentication successful!
-                            status = f"AUTHENTICATED: {user['name']} ({score:.2f})"
+                            status = f"AUTHENTICATED: {user['name']}"
                             frame = self._show_status(frame_with_guide, status, True, guide_box, position_feedback)
                             cv2.imshow("Face Authentication", frame)
                             cv2.waitKey(1500)  # Show result for 1.5 seconds
@@ -369,8 +456,7 @@ class FacialAuthenticationSystem:
                         else:
                             # Show progress toward authentication
                             auth_progress = f"{self.consecutive_matches}/{self.required_matches}"
-                            liveness_info = f", Blink: {self.blink_count}/2" if self.liveness_required else ""
-                            status = f"Recognizing: {user['name']} ({auth_progress}{liveness_info})"
+                            status = f"Recognizing: {user['name']} ({auth_progress})"
                             frame = self._show_status(frame_with_guide, status, True, guide_box, position_feedback)
                     else:
                         # No match found
@@ -419,7 +505,7 @@ class FacialAuthenticationSystem:
             print("Authentication failed.")
             return False, None
     
-    def authenticate_continuous(self, duration=30):
+    def authenticate_continuous(self, duration=30, auth_duration=10):
         """
         Continuous authentication mode for real-time face recognition.
         This mode runs continuously for the specified duration, providing real-time
@@ -427,6 +513,7 @@ class FacialAuthenticationSystem:
         
         Args:
             duration: Duration in seconds to run the continuous authentication (0 for infinite)
+            auth_duration: How long each authentication remains valid (seconds)
             
         Returns:
             List of authenticated users during the session
@@ -447,9 +534,8 @@ class FacialAuthenticationSystem:
         authenticated_status = False
         auth_display_time = None
         auth_timeout = None  # Time when current authentication expires
-        auth_duration = 10   # How long an authentication remains valid (seconds)
         
-        print("Continuous Authentication started. Press 'q' to quit.")
+        print(f"Continuous Authentication started. Auth valid for {auth_duration}s. Press 'q' to quit.")
         
         while True:
             # Check if duration has elapsed (if not infinite)
@@ -486,6 +572,18 @@ class FacialAuthenticationSystem:
                 auth_timeout = None
                 self.consecutive_matches = 0
                 self.consecutive_fails = 0
+                print("Authentication timeout expired")
+                
+            # Reset consecutive failures count if we haven't seen a face for a while
+            # This prevents the counter from growing indefinitely
+            if not authenticated_status and time.time() % 5 < 0.1:
+                # Every 5 seconds, check if we need to reset excessive failure counts
+                self._reset_excessive_failure_count()
+                
+                # If no face is positioned, fully reset the counter periodically
+                if not face_positioned and self.consecutive_fails > self.auth_fail_tolerance:
+                    print(f"No face positioned. Resetting consecutive failures counter from {self.consecutive_fails} to 0")
+                    self.consecutive_fails = 0
             
             if face_positioned:
                 x, y, w, h = face_bbox
@@ -499,14 +597,28 @@ class FacialAuthenticationSystem:
                     user, score = find_user_by_embedding(emb, threshold=self.threshold)
                     
                     if user:
+                        # Reset excessive fail count if we've found a valid user
+                        if self.consecutive_fails > self.auth_fail_tolerance:
+                            print(f"Valid user detected. Resetting consecutive failures from {self.consecutive_fails} to 0")
+                            self.consecutive_fails = 0
                         # Update consecutive matches tracking
                         if self.last_match == user['name']:
                             self.consecutive_matches += 1
                         else:
-                            self.consecutive_matches = 1
-                            self.last_match = user['name']
+                            # Only reset consecutive matches if we consistently see a different user
+                            # Higher stability level = more tolerant of temporary mismatches
+                            if self.consecutive_fails > self.stability_level:
+                                self.consecutive_matches = 1
+                                self.last_match = user['name']
+                            else:
+                                # Temporary mismatch, maintain previous match count
+                                self.consecutive_fails += 1
+                                # Print diagnostic message about mismatch but maintain auth
+                                print(f"Recognition mismatch: Expected {self.last_match}, got {user['name']} (fail {self.consecutive_fails}/{self.fail_tolerance})")
                         
-                        self.consecutive_fails = 0
+                        # Reset consecutive fails counter on successful recognition
+                        if self.last_match == user['name']:
+                            self.consecutive_fails = 0
                         
                         # Check if we have enough consecutive matches
                         if self.consecutive_matches >= self.required_matches:
@@ -519,9 +631,21 @@ class FacialAuthenticationSystem:
                                 # Add to authenticated users list if not already there
                                 if user['name'] not in [u['name'] for u in authenticated_users]:
                                     authenticated_users.append(user)
+                                    print(f"New user authenticated: {user['name']}")
                             else:
-                                # Extend authentication timeout
-                                auth_timeout = time.time() + auth_duration
+                                # Implement smarter timeout extension logic based on stability level
+                                # Higher stability = less frequent timeout extensions
+                                time_remaining = auth_timeout - time.time() if auth_timeout else 0
+                                
+                                # Calculate the threshold for timeout extension based on stability level
+                                # Level 1 (strict): Extend when 70% of time has passed
+                                # Level 2 (balanced): Extend when 50% of time has passed
+                                # Level 3 (tolerant): Extend when 30% of time has passed
+                                extension_threshold = auth_duration * (0.7 - (self.stability_level - 1) * 0.2)
+                                
+                                if auth_timeout is not None and time_remaining < extension_threshold:
+                                    auth_timeout = time.time() + auth_duration
+                                    print(f"Extended auth timeout for {user['name']} (remaining: {time_remaining:.1f}s)")
                             
                             # Draw face box with label
                             cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
@@ -547,8 +671,15 @@ class FacialAuthenticationSystem:
                     else:
                         # No match found
                         self.consecutive_fails += 1
-                        self.consecutive_matches = 0
-                        self.last_match = None
+                        
+                        # Cap the consecutive fails to avoid excessively large numbers
+                        self.consecutive_fails = min(self.consecutive_fails, self.auth_fail_tolerance + 5)
+                        
+                        # Don't immediately reset consecutive matches on temporary recognition failures
+                        # Only reset after several consecutive failures
+                        if self.consecutive_fails >= self.fail_tolerance:
+                            self.consecutive_matches = 0
+                            self.last_match = None
                         
                         # Draw red face box
                         cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 0, 255), 2)
@@ -556,30 +687,43 @@ class FacialAuthenticationSystem:
                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
                         
                         if self.consecutive_fails >= 3:
-                            status = "Unknown face"
+                            status = f"Unknown face"
                             if authenticated_status:
-                                # Only invalidate authentication after several fails
-                                if self.consecutive_fails >= 5:
+                                # Only invalidate authentication after several consistent fails
+                                # This adds stability against temporary recognition failures
+                                if self.consecutive_fails >= self.auth_fail_tolerance:
                                     authenticated_status = False
                                     auth_timeout = None
+                                    print(f"Authentication invalidated after {self.consecutive_fails} consecutive failures")
                         else:
                             status = "Verifying..."
                 except Exception as e:
                     print(f"Error processing face: {e}")
                     status = "Error processing face"
-                    self.consecutive_matches = 0
+                    # Don't reset matches on processing errors
             else:
-                # Reset consecutive fails counter when no face is in position
-                self.consecutive_fails = 0
-                
-                # But don't immediately invalidate authentication - only after timeout
-                if authenticated_status and not bboxes and time.time() - auth_display_time > 5:
-                    # Only reset auth progress when completely losing face for a while
-                    self.consecutive_matches = 0
-                
-                # Guide the user
+                # Don't immediately reset matches/fails counters when face is temporarily out of position
+                # Only if no face at all is detected, and only after a grace period
                 if not bboxes:
-                    status = "No face detected"
+                    # Increment fails counter but prevent it from growing excessively
+                    self.consecutive_fails = min(self.consecutive_fails + 1, self.no_face_tolerance * 2)
+                    
+                    # Only reset authentication after a longer period with no face
+                    if authenticated_status and self.consecutive_fails >= self.no_face_tolerance:
+                        self.consecutive_matches = 0
+                        print(f"Authentication progress reset: No face detected for {self.consecutive_fails} frames (tolerance: {self.no_face_tolerance})")
+                    
+                    # Show a countdown for how many more frames without a face will reset auth
+                    if authenticated_status and self.consecutive_fails > (self.no_face_tolerance / 2):
+                        frames_remaining = self.no_face_tolerance - self.consecutive_fails
+                        frames_remaining = max(0, frames_remaining)  # Ensure it's not negative
+                        status = f"No face detected ({frames_remaining} frames before reset)"
+                    else:
+                        status = "No face detected"
+                else:
+                    # Face is detected but not in position - just provide guidance
+                    # Don't increase fail counter, but also don't reset it
+                    status = "Position your face in the guide box"
             
             # Display authentication effect when first authenticated
             if authenticated_status and auth_display_time and time.time() - auth_display_time < 2:

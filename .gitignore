@@ -22,8 +22,6 @@ var/
 
 # Database files - ignore everything in database directory
 Project/database/
-# But keep the directory structure
-!Project/database/.gitkeep
 
 # VS Code
 .vscode/

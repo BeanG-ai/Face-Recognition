@@ -10,27 +10,51 @@ from Project.utils.database_utils import get_user_info  # UPDATED: use database_
 from Project.utils.vector_store import FaissStore  # ADDED: import FAISS vector store
 from Project.utils.Detector import FaceDetector
 
-# Import Detector from utils
-from Project.utils.Detector import FaceDetector
+# Import the TensorRT utilities
+from Project.utils.tensorrt_utils import load_optimized_model
 
 class Recognizer:
-    def __init__(self, model_path):
-        self.session = ort.InferenceSession(model_path, providers=['CPUExecutionProvider'])
-            # ADDED: initialize FAISS
-        emb_dim = self.session.get_outputs()[0].shape[1]
+    def __init__(self, model_path, use_tensorrt=True, precision='fp16'):
+        self.database_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "database")
+        
+        # Use optimized model if requested
+        if use_tensorrt:
+            try:
+                # Load optimized face recognition model
+                self.model = load_optimized_model('inception_resnet_v1', precision=precision)
+                self.using_tensorrt = True
+                print(f"Using TensorRT optimized face embedding model with {precision} precision")
+            except Exception as e:
+                print(f"Failed to load TensorRT model: {e}")
+                print("Falling back to ONNX Runtime")
+                self.using_tensorrt = False
+                self.session = ort.InferenceSession(model_path, providers=['CPUExecutionProvider'])
+        else:
+            # Use ONNX Runtime
+            self.using_tensorrt = False
+            self.session = ort.InferenceSession(model_path, providers=['CPUExecutionProvider'])
+            
+        # ADDED: initialize FAISS
+        # Get embedding dimension (512 for Inception ResNet v1)
+        emb_dim = 512  # Default for Inception ResNet v1
         faiss_index = os.path.join(self.database_path, 'faiss.index')
-        faiss_meta  = os.path.join(self.database_path, 'faiss_meta.json')
+        faiss_meta = os.path.join(self.database_path, 'faiss_meta.json')
         self.vector_store = FaissStore(dim=emb_dim,
-                                   index_path=faiss_index,
-                                   meta_path=faiss_meta)
-            # END OF ADDED
+                               index_path=faiss_index,
+                               meta_path=faiss_meta)
+        # END OF ADDED
 
         self.det_times, self.emb_times = [], []
-        # Initialize the detector
-        self.detector = FaceDetector(model_path)
+        
+        # Initialize the detector with TensorRT optimization
+        detector_model_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
+                                           "models", "blaze_face_short_range.tflite")
+        self.detector = FaceDetector(model_path=detector_model_path, 
+                                     use_tensorrt=use_tensorrt, 
+                                     precision=precision)
 
     def detect_and_embed(self, frame):
-        # Detect face using MediaPipe detector
+        # Detect face using optimized detector
         t0 = time.perf_counter()
         detection_result = self.detector.detect_frame(frame)
         bboxes = detection_result.bboxes
@@ -44,10 +68,21 @@ class Recognizer:
         x, y, w, h = bboxes[0]
         face = frame[y:y+h, x:x+w]
 
-        # Embed
-        inp = preprocess_face(face)
+        # Embed the face
         t1 = time.perf_counter()
-        emb = self.session.run(None, {'input': inp})[0][0]
+        
+        # Preprocess the face image
+        inp = preprocess_face(face)
+        
+        # Run embedding inference with TensorRT or ONNX Runtime
+        if self.using_tensorrt:
+            emb = self.model(inp)
+            # Check if the model returns a tuple/list and get the first element
+            if isinstance(emb, (tuple, list)):
+                emb = emb[0]
+        else:
+            emb = self.session.run(None, {'input': inp})[0][0]
+            
         et = time.perf_counter() - t1
         self.emb_times.append(et)
 
@@ -70,33 +105,67 @@ class FaceRecognitionApp:
     """
     Application for real-time face detection and recognition.
     """
-    def __init__(self, detector_model_path, embedding_model_path, database_path, threshold=0.6):
+    def __init__(self, detector_model_path, embedding_model_path, database_path, threshold=0.6, use_tensorrt=True, precision='fp16'):
         self.detector_model_path = detector_model_path
         self.embedding_model_path = embedding_model_path
         self.database_path = database_path
         self.threshold = threshold
+        self.use_tensorrt = use_tensorrt
+        self.precision = precision
         
-        # Initialize embedding model
-        self.session = ort.InferenceSession(embedding_model_path, providers=['CPUExecutionProvider'])
-        # Determine embedding dimension
-        emb_dim = self.session.get_outputs()[0].shape[1]  # ADDED: get embedding dimension
+        # Initialize embedding model with TensorRT if available
+        if use_tensorrt:
+            try:
+                # Load optimized model
+                self.model = load_optimized_model('inception_resnet_v1', precision=precision)
+                self.using_tensorrt = True
+                print(f"Using TensorRT optimized face embedding model with {precision} precision")
+                
+                # For FAISS, we need embedding dimension - default is 512 for Inception ResNet v1
+                emb_dim = 512
+            except Exception as e:
+                print(f"Failed to load TensorRT model: {e}")
+                print("Falling back to ONNX Runtime")
+                self.using_tensorrt = False
+                self.session = ort.InferenceSession(embedding_model_path, providers=['CPUExecutionProvider'])
+                emb_dim = self.session.get_outputs()[0].shape[1]
+        else:
+            # Use ONNX Runtime
+            self.using_tensorrt = False
+            self.session = ort.InferenceSession(embedding_model_path, providers=['CPUExecutionProvider'])
+            emb_dim = self.session.get_outputs()[0].shape[1]
 
         # Initialize FAISS vector store
         faiss_index = os.path.join(database_path, 'faiss.index')  # ADDED: FAISS index path
         faiss_meta = os.path.join(database_path, 'faiss_meta.json')  # ADDED: FAISS metadata path
         self.vector_store = FaissStore(dim=emb_dim, index_path=faiss_index, meta_path=faiss_meta)  # ADDED: init FAISS store
+        
     def extract_embedding(self, face_img):
         """Extract face embedding using the embedding model."""
         inp = preprocess_face(face_img)
-        emb = self.session.run(None, {'input': inp})[0][0]
+        
+        # Run inference with TensorRT or ONNX Runtime
+        if self.using_tensorrt:
+            emb = self.model(inp)
+            # Check if the model returns a tuple/list and get the first element
+            if isinstance(emb, (tuple, list)):
+                emb = emb[0]
+            # The TensorRT model might return a batch, get the first item
+            if len(emb.shape) > 1:
+                emb = emb[0]
+        else:
+            emb = self.session.run(None, {'input': inp})[0][0]
+            
         return emb
         
     def run(self):
         """Run the face recognition application."""
         print("Starting Face Recognition System...")
         
-        # Initialize face detector
-        detector = FaceDetector(self.detector_model_path)
+        # Initialize face detector with TensorRT if available
+        detector = FaceDetector(self.detector_model_path, 
+                                use_tensorrt=self.use_tensorrt,
+                                precision=self.precision)
         
         # Open webcam
         cap = cv2.VideoCapture(0)
@@ -143,7 +212,8 @@ class FaceRecognitionApp:
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
                 except Exception as e:
                     print(f"Error processing face: {e}")
-              # Display the frame
+            
+            # Display the frame
             cv2.imshow("Face Recognition", annotated_frame)
             
             # Exit on 'q' key press
