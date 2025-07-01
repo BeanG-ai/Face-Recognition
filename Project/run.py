@@ -7,7 +7,7 @@ from Project.app.registration import Registrar, FaceRegistrationApp
 from Project.utils.database_utils import BASE_DIR
 
 MODEL_PATH = os.path.join(BASE_DIR, 'models', 'inception_resnet_v1.onnx')
-DETECTOR_MODEL_PATH = os.path.join(BASE_DIR, 'models', 'blaze_face_short_range.tflite')
+DETECTOR_MODEL_PATH = os.path.join(BASE_DIR, 'models', 'blazeface.onnx')
 
 def main():
     """

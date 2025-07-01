@@ -6,5 +6,8 @@ psutil>=5.9.0
 matplotlib>=3.5.0
 tqdm>=4.64.0
 pillow>=9.0.0
-# For CUDA support on Jetson devices
-# jetson-stats>=3.1.0  # Uncomment when deploying to Jetson hardware
+tensorflow>=2.6.0
+faiss-cpu>=1.7.0
+# For CUDA support on Jetson and other GPU systems
+# jetson-stats>=3.1.0  # For Jetson hardware monitoring
+# faiss-gpu>=1.7.0  # For GPU acceleration of vector search (remove faiss-cpu first)
