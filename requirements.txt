@@ -1,0 +1,22 @@
+opencv-python>=4.5.0
+numpy>=1.19.0
+mediapipe>=0.10.0
+ultralytics>=8.0.0
+onnxruntime>=1.10.0
+psutil>=5.9.0
+matplotlib>=3.5.0
+tqdm>=4.64.0
+pillow>=9.0.0
+tensorflow>=2.6.0
+faiss-cpu>=1.7.0
+onnx>=1.12.0  # For ONNX model inspection and optimization
+
+# For CUDA and TensorRT support (optional but recommended for acceleration)
+# nvidia-pyindex  # Required for installing nvidia packages
+# pycuda>=2022.1  # Required for TensorRT
+# nvidia-tensorrt  # TensorRT Python bindings
+# onnxruntime-gpu  # GPU-accelerated ONNX Runtime
+
+# For Jetson-specific optimizations (only on Jetson hardware)
+# jetson-stats>=3.1.0  # For Jetson hardware monitoring
+# faiss-gpu>=1.7.0  # GPU acceleration of vector search (remove faiss-cpu first)

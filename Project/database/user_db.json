@@ -1,0 +1,13 @@
+[
+  {
+    "id": 1,
+    "name": "Duc",
+    "age": "11",
+    "major": "1",
+    "course": "1",
+    "gmail": "1",
+    "phone": "1",
+    "image": "database\\images\\user_1.jpg",
+    "embedding": "database\\embeddings\\user_1.npy"
+  }
+]
