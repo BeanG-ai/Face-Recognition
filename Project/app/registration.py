@@ -7,12 +7,12 @@ from Project.utils.face_utils import save_face_image
 import sys
 import onnxruntime as ort
 
-
 # Import HeadPoseModel and Detector from utils
 from Project.utils.HeadPoseModel import HeadPoseEnrollment
 from Project.utils.Detector import FaceDetector
 from Project.utils.face_utils import preprocess_face
 from Project.utils.vector_store import FaissStore
+from Project.utils.defisheye_config import create_defisheye_instance
 
 class Registrar:
     def __init__(self, vector_store, similarity_threshold: float = 0.7):
@@ -120,6 +120,11 @@ class FaceRegistrationApp:
         # Initialize face detector
         detector = FaceDetector(self.detector_model_path)
         
+        # Initialize defisheye if camera_mode is 'fisheye'
+        defisheye = None
+        if hasattr(self, 'camera_mode') and self.camera_mode == 'fisheye':
+            defisheye = create_defisheye_instance()
+        
         # Initialize head pose enrollment
         enrollment = HeadPoseEnrollment(save_path=user_dir)
         
@@ -136,6 +141,10 @@ class FaceRegistrationApp:
             if not ret:
                 print("Error: Failed to capture frame.")
                 break
+            
+            # Apply defisheye if needed
+            if defisheye is not None:
+                frame = defisheye.undistort(frame)
             
             # Process frame with head pose enrollment
             ui_frame = enrollment.process_frame(frame)

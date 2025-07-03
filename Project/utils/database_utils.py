@@ -62,6 +62,7 @@ def find_user_by_embedding(embedding, threshold=0.6):
     for rec in db:
         db_emb = np.load(os.path.join(BASE_DIR, rec['embedding']))
         score = np.dot(db_emb, embedding) / (np.linalg.norm(db_emb) * np.linalg.norm(embedding))
+        print(score)
         if score > best_score:
             best_score, best_match = score, rec
     return best_match, best_score

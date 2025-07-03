@@ -9,6 +9,7 @@ from Project.utils.database_utils import find_user_by_embedding
 from Project.utils.database_utils import get_user_info  # UPDATED: use database_utils for metadata lookup
 from Project.utils.vector_store import FaissStore  # ADDED: import FAISS vector store
 from Project.utils.Detector import FaceDetector
+from Project.utils.defisheye_config import create_defisheye_instance  # ADDED: import defisheye config
 
 # Import Detector from utils
 from Project.utils.Detector import FaceDetector
@@ -98,6 +99,11 @@ class FaceRecognitionApp:
         # Initialize face detector
         detector = FaceDetector(self.detector_model_path)
         
+        # Initialize defisheye if camera_mode is 'fisheye'
+        defisheye = None
+        if hasattr(self, 'camera_mode') and self.camera_mode == 'fisheye':
+            defisheye = create_defisheye_instance()
+        
         # Open webcam
         cap = cv2.VideoCapture(0)
         if not cap.isOpened():
@@ -111,6 +117,10 @@ class FaceRecognitionApp:
             if not ret:
                 print("Error: Failed to capture frame.")
                 break
+            
+            # Apply defisheye if needed
+            if defisheye is not None:
+                frame = defisheye.undistort(frame)
             
             # Detect faces in the frame
             detection_result = detector.detect_frame(frame)
