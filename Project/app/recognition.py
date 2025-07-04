@@ -10,13 +10,23 @@ from Project.utils.database_utils import get_user_info  # UPDATED: use database_
 from Project.utils.vector_store import FaissStore  # ADDED: import FAISS vector store
 from Project.utils.Detector import FaceDetector
 
+# Import fisheye correction
+from Project.utils.FishEyeCalibrate import Defisheye
+from Project.utils.defisheye_config import get_defisheye_params
 # Import the TensorRT utilities
 from Project.utils.tensorrt_utils import load_optimized_model
 
 class Recognizer:
-    def __init__(self, model_path, use_tensorrt=True, precision='fp16'):
+    def __init__(self, model_path, use_tensorrt=True, precision='fp16',camera_mode='flat'):
         self.database_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "database")
-        
+        self.camera_mode = camera_mode
+        # Initialize fisheye correction if needed
+        if camera_mode == 'fisheye':
+            self.fisheye_corrector = Defisheye(**get_defisheye_params())
+            print("Fisheye correction enabled for Recognizer")
+        else:
+            self.fisheye_corrector = None
+            print("Using flat camera mode (no fisheye correction)")
         # Use optimized model if requested
         if use_tensorrt:
             try:
@@ -55,6 +65,9 @@ class Recognizer:
 
     def detect_and_embed(self, frame):
         # Detect face using optimized detector
+        # Apply fisheye correction if enabled
+        if self.camera_mode == 'fisheye' and self.fisheye_corrector:
+            frame = self.fisheye_corrector.undistort(frame)
         t0 = time.perf_counter()
         detection_result = self.detector.detect_frame(frame)
         bboxes = detection_result.bboxes
@@ -105,14 +118,21 @@ class FaceRecognitionApp:
     """
     Application for real-time face detection and recognition.
     """
-    def __init__(self, detector_model_path, embedding_model_path, database_path, threshold=0.6, use_tensorrt=True, precision='fp16'):
+    def __init__(self, detector_model_path, embedding_model_path, database_path, threshold=0.6, use_tensorrt=True, precision='fp16',camera_mode='flat'):
         self.detector_model_path = detector_model_path
         self.embedding_model_path = embedding_model_path
         self.database_path = database_path
         self.threshold = threshold
         self.use_tensorrt = use_tensorrt
         self.precision = precision
-        
+        self.camera_mode = camera_mode
+        # Initialize fisheye correction if needed
+        if camera_mode == 'fisheye':
+            self.fisheye_corrector = Defisheye(**get_defisheye_params())
+            print("Fisheye correction enabled for FaceRecognitionApp")
+        else:
+            self.fisheye_corrector = None
+            print("Using flat camera mode (no fisheye correction)")
         # Initialize embedding model with TensorRT if available
         if use_tensorrt:
             try:
@@ -180,7 +200,9 @@ class FaceRecognitionApp:
             if not ret:
                 print("Error: Failed to capture frame.")
                 break
-            
+            if self.camera_mode == 'fisheye' and self.fisheye_corrector:
+                # Apply fisheye correction if enabled
+                frame = self.fisheye_corrector.undistort(frame)
             # Detect faces in the frame
             detection_result = detector.detect_frame(frame)
             bboxes = detection_result.bboxes

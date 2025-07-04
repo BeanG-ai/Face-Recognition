@@ -8,6 +8,9 @@ from Project.utils.database_utils import find_user_by_embedding
 
 # Import TensorRT utilities
 from Project.utils.tensorrt_utils import load_optimized_model
+# Import fisheye correction
+from Project.utils.FishEyeCalibrate import Defisheye
+from Project.utils.defisheye_config import get_defisheye_params
 
 class FacialAuthenticationSystem:
     """
@@ -17,7 +20,7 @@ class FacialAuthenticationSystem:
     Facial authentication system with a guide box interface.
     Users position their face within the designated box for authentication.
     """
-    def __init__(self, detector_model_path, embedding_model_path, threshold=0.65, max_attempts=3, timeout=10, use_tensorrt=True, precision='fp16', stability_level=1):
+    def __init__(self, detector_model_path, embedding_model_path, threshold=0.65, max_attempts=3, timeout=10, use_tensorrt=True, precision='fp16', stability_level=1,camera_mode='flat'):
         """
         Khởi tạo hệ thống xác thực khuôn mặt.
         
@@ -30,6 +33,7 @@ class FacialAuthenticationSystem:
             use_tensorrt: Sử dụng TensorRT tăng tốc nếu có thể
             precision: Độ chính xác cho TensorRT (fp16 hoặc fp32)
             stability_level: Mức độ ổn định của xác thực (1-3, cao hơn = khó mất xác thực hơn)
+            camera_mode: Chế độ camera ('flat' cho camera thường, 'fisheye' cho camera fisheye với hiệu chỉnh)
             
         Initialize the facial authentication system.
         
@@ -42,6 +46,7 @@ class FacialAuthenticationSystem:
             use_tensorrt: Whether to use TensorRT acceleration if available
             precision: Precision to use for TensorRT models ('fp16' or 'fp32')
             stability_level: Stability level of authentication (1-3, higher = more resilient to failures)
+            camera_mode: Camera mode ('flat' for normal camera, 'fisheye' for fisheye camera with correction)
         """
         # Initialize face detector with TensorRT if requested
         self.detector = FaceDetector(detector_model_path, use_tensorrt=use_tensorrt, precision=precision)
@@ -90,6 +95,14 @@ class FacialAuthenticationSystem:
         self.frame_count = 0
         self.fps_start_time = time.time()
         
+        self.camera_mode = camera_mode
+        if camera_mode == 'fisheye':
+            # Initialize fisheye correction parameters
+            self.fisheye_corrector = Defisheye(**get_defisheye_params())
+            print("Fisheye correction enabled")
+        else:
+            self.fisheye_corrector = None
+            print("Using flat camera mode (no fisheye correction)")
     def _init_onnx_model(self, embedding_model_path):
         """Initialize ONNX Runtime model as fallback"""
         # Performance optimization for Jetson Orin Nano - use CUDA if available
@@ -400,7 +413,9 @@ class FacialAuthenticationSystem:
                 
             # Lật ngang frame để tạo hiệu ứng gương (Mirror effect)
             frame = cv2.flip(frame, 1)
-            
+            # Apply fisheye correction if enabled
+            if self.camera_mode == 'fisheye' and self.fisheye_corrector:
+                frame = self.fisheye_corrector.undistort(frame)
             # Update FPS counter
             self._update_fps()
                 
@@ -552,7 +567,9 @@ class FacialAuthenticationSystem:
                 
             # Mirror effect
             frame = cv2.flip(frame, 1)
-                
+            if self.camera_mode == 'fisheye' and self.fisheye_corrector:
+                frame = self.fisheye_corrector.undistort(frame)
+ 
             # Draw guide box
             frame_with_guide, guide_box = self._draw_face_guide(frame)
             

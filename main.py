@@ -89,7 +89,9 @@ def parse_args():
                        help='Directory to save monitoring data and reports')
     parser.add_argument('--report', action='store_true',
                        help='Generate detailed authentication report')
-    
+    # Camera options
+    parser.add_argument('--camera-mode', type=str, default='flat', choices=['flat', 'fisheye'],
+                       help='Camera mode: flat (normal camera) or fisheye (fisheye camera with correction)')
     return parser.parse_args()
 
 def check_models_exist(detector_path, embedding_path):
@@ -226,7 +228,8 @@ def run_authentication(args, detector_model_path, embedding_model_path, monitor=
         timeout=args.timeout,
         use_tensorrt=args.use_tensorrt,
         precision=args.precision,
-        stability_level=args.stability
+        stability_level=args.stability,
+        camera_mode=args.camera_mode
     )
     
     # Set authentication parameters
@@ -332,7 +335,8 @@ def main():
                 database_path=db_path,
                 username=args.username,
                 use_tensorrt=args.use_tensorrt,
-                precision=args.precision
+                precision=args.precision,
+                camera_mode=args.camera_mode
             )
             app.run()
             
@@ -344,7 +348,8 @@ def main():
                 database_path=db_path,
                 threshold=args.threshold,
                 use_tensorrt=args.use_tensorrt,
-                precision=args.precision
+                precision=args.precision,
+                camera_mode=args.camera_mode
             )
             app.run()
             
