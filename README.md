@@ -83,6 +83,7 @@ python main.py --mode authentication --auth-mode continuous --duration 60 --live
 python main.py --mode recognition --camera-mode fisheye
 python main.py --mode registration --username <name> --camera-mode fisheye
 python main.py --mode authentication --camera-mode fisheye
+python main.py --mode authentication --auth-mode continuous --camera-mode fisheye
 
 # Default flat camera mode
 python main.py --mode recognition --camera-mode flat
