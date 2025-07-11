@@ -112,6 +112,15 @@ fi
 echo "Setting up project directories..."
 python setup_project.py
 
+# Setup DeepFace portable models
+echo "Setting up DeepFace portable models..."
+python3 setup_deepface.py
+if [ $? -eq 0 ]; then
+    echo "DeepFace setup completed successfully."
+else
+    echo "DeepFace setup encountered issues. Check logs above."
+fi
+
 # Run system check
 echo "Running system check..."
 cat << EOF > system_check.py

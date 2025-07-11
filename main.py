@@ -30,6 +30,9 @@ from Project.app.registration import FaceRegistrationApp
 from Project.app.recognition import FaceRecognitionApp
 from Project.utils.authentication import FacialAuthenticationSystem
 
+# Import TURBO Authentication System
+from Project.utils.authentication import TurboAuthenticationSystem, turbo_realtime_inference
+
 # Try to import system monitoring (optional)
 try:
     from system_monitor import SystemMonitor
@@ -61,6 +64,8 @@ def parse_args():
                        help='Duration for continuous authentication mode in seconds (0 for infinite)')
     parser.add_argument('--auth-duration', type=int, default=10,
                        help='How long each authentication remains valid in continuous mode (seconds)')
+    parser.add_argument('--skip-frames', type=int, default=0,
+                       help='Number of frames to skip for performance (0=no skip, 2=default, higher=faster but less responsive)')
     parser.add_argument('--stability', type=int, default=2, choices=[1, 2, 3],
                        help='Stability level: 1=strict, 2=balanced, 3=tolerant. Affects how the system handles unstable recognition')
     parser.add_argument('--liveness', action='store_true',
@@ -139,7 +144,7 @@ def check_tensorrt_models(base_dir, precision):
     return trt_available
 
 def generate_auth_report(args, auth_results, session_duration, output_dir=None):
-    """Generate a detailed authentication report."""
+    """Generate a detailed authentication report for TURBO system."""
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
     else:
@@ -148,6 +153,122 @@ def generate_auth_report(args, auth_results, session_duration, output_dir=None):
     
     # Create report timestamp
     timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+    report_filename = f"turbo_auth_report_{timestamp_str}.json"
+    report_path = os.path.join(output_dir, report_filename)
+    
+    # Prepare report data
+    report_data = {
+        "timestamp": datetime.now().isoformat(),
+        "system": "TURBO Authentication System",
+        "session_info": {
+            "mode": args.auth_mode,
+            "duration": session_duration,
+            "threshold": args.threshold,
+            "liveness_enabled": args.liveness,
+            "tensorrt_enabled": args.use_tensorrt,
+            "precision": args.precision if args.use_tensorrt else "N/A",
+            "continuous_duration": args.duration if args.auth_mode == "continuous" else "N/A",
+            "timeout": args.timeout if args.auth_mode == "single" else "N/A",
+        },
+        "results": {}
+    }
+    
+    # Process TURBO results
+    if "turbo_result" in auth_results:
+        turbo_result = auth_results["turbo_result"]
+        
+        if args.auth_mode == "continuous" and isinstance(turbo_result, list):
+            # Continuous mode results
+            user_stats = {}
+            total_verifications = len(turbo_result)
+            
+            for verification in turbo_result:
+                user_id = verification.get('user_id', 'Unknown')
+                confidence = verification.get('confidence', 0)
+                
+                if user_id not in user_stats:
+                    user_stats[user_id] = {
+                        "verifications": 0,
+                        "avg_confidence": 0,
+                        "max_confidence": 0,
+                        "min_confidence": 1
+                    }
+                
+                user_stats[user_id]["verifications"] += 1
+                user_stats[user_id]["avg_confidence"] = (
+                    (user_stats[user_id]["avg_confidence"] * (user_stats[user_id]["verifications"] - 1) + confidence) /
+                    user_stats[user_id]["verifications"]
+                )
+                user_stats[user_id]["max_confidence"] = max(user_stats[user_id]["max_confidence"], confidence)
+                user_stats[user_id]["min_confidence"] = min(user_stats[user_id]["min_confidence"], confidence)
+            
+            report_data["results"] = {
+                "total_verifications": total_verifications,
+                "unique_users": len(user_stats),
+                "user_statistics": user_stats,
+                "success_rate": 1.0 if total_verifications > 0 else 0.0
+            }
+        
+        elif args.auth_mode == "single":
+            # Single mode results
+            if turbo_result:
+                report_data["results"] = {
+                    "success": True,
+                    "user_id": turbo_result.get('user_id', 'Unknown'),
+                    "confidence": turbo_result.get('confidence', 0),
+                    "similarity": turbo_result.get('similarity', 0)
+                }
+            else:
+                report_data["results"] = {
+                    "success": False,
+                    "reason": "No face authenticated"
+                }
+    
+    # Handle fallback results
+    elif "authenticated_users" in auth_results:
+        # Original continuous mode
+        users = auth_results["authenticated_users"]
+        report_data["results"] = {
+            "fallback_mode": True,
+            "authenticated_users": len(users) if users else 0,
+            "users": users if users else []
+        }
+    elif "success" in auth_results:
+        # Original single mode
+        report_data["results"] = {
+            "fallback_mode": True,
+            "success": auth_results["success"],
+            "user": auth_results["user"]
+        }
+    
+    # Write report to file
+    try:
+        with open(report_path, 'w', encoding='utf-8') as f:
+            json.dump(report_data, f, indent=2, ensure_ascii=False)
+        
+        print(f"\n📋 TURBO Authentication report generated: {report_path}")
+        
+        # Print summary to console
+        print(f"📊 Report Summary:")
+        if args.auth_mode == "continuous":
+            if "total_verifications" in report_data["results"]:
+                print(f"   Total verifications: {report_data['results']['total_verifications']}")
+                print(f"   Unique users: {report_data['results']['unique_users']}")
+                print(f"   Session duration: {session_duration:.1f}s")
+            elif "authenticated_users" in report_data["results"]:
+                print(f"   Authenticated users (fallback): {report_data['results']['authenticated_users']}")
+        else:
+            if "success" in report_data["results"]:
+                success = report_data["results"]["success"]
+                print(f"   Authentication: {'✅ Success' if success else '❌ Failed'}")
+                if success and "user_id" in report_data["results"]:
+                    print(f"   User: {report_data['results']['user_id']}")
+        
+        return report_path
+        
+    except Exception as e:
+        print(f"❌ Error generating report: {e}")
+        return None
     
     # Basic report info
     report = {
@@ -196,11 +317,11 @@ def generate_auth_report(args, auth_results, session_duration, output_dir=None):
     return report_path
 
 def run_authentication(args, detector_model_path, embedding_model_path, monitor=None):
-    """Run the authentication mode of the application."""
-    print("\n" + "="*50)
-    print("  Facial Authentication System")
-    print("  Optimized for Jetson Orin Nano X")
-    print("="*50)
+    """Run the TURBO authentication mode of the application."""
+    print("\n" + "="*60)
+    print("  🚀 TURBO Facial Authentication System")
+    print("  Optimized for High Performance")
+    print("="*60)
     
     print(f"\nMode: {'Continuous' if args.auth_mode == 'continuous' else 'Single Authentication'}")
     print(f"Security threshold: {args.threshold}")
@@ -217,24 +338,7 @@ def run_authentication(args, detector_model_path, embedding_model_path, monitor=
         print(f"Max attempts: {args.attempts}")
     
     print(f"Performance monitoring: {'Enabled' if monitor else 'Disabled'}")
-    print("="*50 + "\n")
-    
-    # Initialize the facial authentication system
-    auth_system = FacialAuthenticationSystem(
-        detector_model_path=detector_model_path,
-        embedding_model_path=embedding_model_path,
-        threshold=args.threshold,
-        max_attempts=args.attempts,
-        timeout=args.timeout,
-        use_tensorrt=args.use_tensorrt,
-        precision=args.precision,
-        stability_level=args.stability,
-        camera_mode=args.camera_mode
-    )
-    
-    # Set authentication parameters
-    auth_system.required_matches = args.matches
-    auth_system.liveness_required = args.liveness
+    print("="*60 + "\n")
     
     # Start monitoring if enabled
     if monitor:
@@ -244,58 +348,123 @@ def run_authentication(args, detector_model_path, embedding_model_path, monitor=
         start_time = time.time()
         auth_results = {}
         
+        # Determine appropriate settings based on arguments
+        face_threshold = args.threshold
+        antispoof_threshold = 0  # Default antispoof threshold
+        
         if args.auth_mode == 'continuous':
-            print(f"Starting continuous authentication for {args.duration}s {'(infinite)' if args.duration == 0 else ''}")
-            print(f"Authentication validity period: {args.auth_duration}s")
-            print("Press 'q' to exit at any time")
+            print(f"🔄 Starting TURBO continuous authentication for {args.duration}s")
+            print("   Real-time processing with optimization")
+            print("   Press 'q' to exit at any time")
+            print(f"   Skip frames: {args.skip_frames} (0=no skip for best responsiveness)")
             
-            authenticated_users = auth_system.authenticate_continuous(
-                duration=args.duration,
-                auth_duration=args.auth_duration
+            # Use TURBO continuous mode
+            result = turbo_realtime_inference(
+                duration=args.duration if args.duration > 0 else 100,  # Default to 100s if infinite
+                mode="continuous",
+                face_threshold=face_threshold,
+                antispoof_threshold=antispoof_threshold,
+                skip_frames=args.skip_frames
             )
-            auth_results = {"authenticated_users": authenticated_users}
             
-            if authenticated_users:
-                print("\n✅ Authentication Summary:")
-                for i, user in enumerate(authenticated_users, 1):
-                    print(f"  {i}. {user['name']} (ID: {user['id']})")
+            auth_results = {"turbo_result": result}
+            
+            if result and isinstance(result, list) and len(result) > 0:
+                print("\n✅ TURBO Continuous Authentication Summary:")
+                # Group results by user_id
+                user_counts = {}
+                for verification in result:
+                    user_id = verification.get('user_id', 'Unknown')
+                    if user_id in user_counts:
+                        user_counts[user_id] += 1
+                    else:
+                        user_counts[user_id] = 1
+                
+                for i, (user_id, count) in enumerate(user_counts.items(), 1):
+                    print(f"  {i}. {user_id} (verified {count} times)")
             else:
-                print("\n❌ No users were authenticated during the session.")
+                print("\n❌ No users were authenticated during the TURBO session.")
+        
         else:
-            print("Starting single authentication mode")
-            print("Position your face in the guide box and follow the on-screen instructions")
+            print("🔍 Starting TURBO single authentication mode")
+            print("   Optimized capture and verification")
+            print("   Position your face in the guide box")
             
-            success, user = auth_system.authenticate()
-            auth_results = {"success": success, "user": user if success else None}
+            # Use TURBO single mode with timeout as duration
+            duration = min(args.timeout, 30)  # Max 30s for single mode
+            result = turbo_realtime_inference(
+                duration=duration,
+                mode="single",
+                face_threshold=face_threshold,
+                antispoof_threshold=antispoof_threshold
+            )
             
-            if success:
-                print(f"\n✅ Authentication successful!")
-                print(f"  User: {user['name']}")
-                print(f"  User ID: {user['id']}")
-                if 'major' in user:
-                    print(f"  Major: {user['major']}")
-                if 'course' in user:
-                    print(f"  Course: {user['course']}")
+            auth_results = {"turbo_result": result}
+            
+            if result:
+                print(f"\n✅ TURBO Authentication successful!")
+                print(f"  User: {result.get('user_id', 'Unknown')}")
+                if 'confidence' in result:
+                    print(f"  Confidence: {result['confidence']:.3f}")
+                if 'similarity' in result:
+                    print(f"  Similarity: {result['similarity']:.3f}")
             else:
-                print("\n❌ Authentication failed. Please try again.")
+                print("\n❌ TURBO Authentication failed. Please try again.")
         
         session_duration = time.time() - start_time
-        print(f"\nSession completed in {session_duration:.1f} seconds")
+        print(f"\n📊 TURBO Session completed in {session_duration:.1f} seconds")
         
         # Generate authentication report if requested
         if args.report:
             generate_auth_report(args, auth_results, session_duration, args.output)
         
+        return auth_results
+        
     except KeyboardInterrupt:
-        print("\n\nAuthentication session interrupted by user.")
+        print("\n\n⏹️ TURBO Authentication session interrupted by user.")
+        return None
     except Exception as e:
-        print(f"\n\nError: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"\n\n❌ TURBO Error: {e}")
+        print("🔄 Falling back to original authentication system...")
+        
+        # Fallback to original system
+        try:
+            auth_system = FacialAuthenticationSystem(
+                detector_model_path=detector_model_path,
+                embedding_model_path=embedding_model_path,
+                threshold=args.threshold,
+                max_attempts=args.attempts,
+                timeout=args.timeout,
+                use_tensorrt=args.use_tensorrt,
+                precision=args.precision,
+                stability_level=args.stability,
+                camera_mode=args.camera_mode
+            )
+            
+            auth_system.required_matches = args.matches
+            auth_system.liveness_required = args.liveness
+            
+            if args.auth_mode == 'continuous':
+                authenticated_users = auth_system.authenticate_continuous(
+                    duration=args.duration,
+                    auth_duration=args.auth_duration
+                )
+                return {"authenticated_users": authenticated_users}
+            else:
+                success, user = auth_system.authenticate()
+                return {"success": success, "user": user if success else None}
+                
+        except Exception as fallback_error:
+            print(f"❌ Fallback system also failed: {fallback_error}")
+            return None
+        finally:
+            if 'auth_system' in locals():
+                auth_system.close()
+    
     finally:
-        # Cleanup
-        auth_system.close()
-        print("\nFacial Authentication System closed.")
+        if monitor:
+            monitor.stop_monitoring()
+        print("\n🚀 TURBO Authentication System session ended.")
 
 def main():
     """Main application entry point with command-line argument handling."""

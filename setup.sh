@@ -123,6 +123,15 @@ EOF
 python system_check.py
 rm system_check.py
 
+# Setup DeepFace portable models
+echo "Setting up DeepFace portable models..."
+python setup_deepface.py
+if [ $? -eq 0 ]; then
+    echo "DeepFace setup completed successfully."
+else
+    echo "DeepFace setup encountered issues. Check logs above."
+fi
+
 echo
 echo "Setup complete! You can now use the system."
 echo "To run the main application: python main.py"

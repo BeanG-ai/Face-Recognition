@@ -70,7 +70,10 @@ python main.py --mode recognition --threshold 0.65
 # Single authentication
 python main.py --mode authentication --auth-mode single 
 
-# Continuous authentication
+# Continuous authentication with no frame skipping (best responsiveness)
+python main.py --mode authentication --auth-mode continuous --duration 60 --skip-frames 0
+
+# Continuous authentication with default frame skipping (balanced performance)
 python main.py --mode authentication --auth-mode continuous --duration 60 --liveness
 ```
 - Displays a guide box for correct face positioning
@@ -137,6 +140,7 @@ pip install nvidia-pyindex nvidia-tensorrt pycuda
 - `--username`: Username for registration
 - `--auth-mode`: Authentication mode (single, continuous)
 - `--duration`: Duration for continuous mode in seconds
+- `--skip-frames`: Frame skipping for performance (0=no skip, 2=default, higher=faster but less responsive)
 - `--liveness`: Enable liveness detection
 - `--matches`: Required consecutive matches for authentication
 - `--camera-mode`: Camera mode (flat, fisheye)

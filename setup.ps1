@@ -62,6 +62,15 @@ if (-not (Test-Path "Project\models\inception_resnet_v1.onnx")) {
     New-Item -ItemType Directory -Path "Project\models" -Force | Out-Null
 }
 
+# Setup DeepFace portable models
+Write-Host "Setting up DeepFace portable models..." -ForegroundColor Cyan
+python setup_deepface.py
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "DeepFace setup completed successfully." -ForegroundColor Green
+} else {
+    Write-Host "DeepFace setup encountered issues. Check logs above." -ForegroundColor Yellow
+}
+
 # Run a quick system check
 Write-Host "Running system check..." -ForegroundColor Cyan
 $systemCheck = @'
