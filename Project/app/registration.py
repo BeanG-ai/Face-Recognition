@@ -20,6 +20,38 @@ from Project.utils.vector_store import FaissStore
 from Project.utils.FishEyeCalibrate import Defisheye
 from Project.utils.defisheye_config import get_defisheye_params
 
+try:
+    from PyQt5.QtWidgets import QApplication, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton
+    PYQT5_AVAILABLE = True
+except ImportError:
+    PYQT5_AVAILABLE = False
+
+class UserInfoDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Enter User Information")
+        self.setFixedWidth(350)
+        layout = QVBoxLayout(self)
+        self.fields = {}
+        for label in ["Name", "Age", "Major", "Course", "Gmail", "Phone"]:
+            row = QHBoxLayout()
+            lbl = QLabel(label+":")
+            edit = QLineEdit()
+            row.addWidget(lbl)
+            row.addWidget(edit)
+            layout.addLayout(row)
+            self.fields[label.lower()] = edit
+        btn_row = QHBoxLayout()
+        self.ok_btn = QPushButton("OK")
+        self.cancel_btn = QPushButton("Cancel")
+        btn_row.addWidget(self.ok_btn)
+        btn_row.addWidget(self.cancel_btn)
+        layout.addLayout(btn_row)
+        self.ok_btn.clicked.connect(self.accept)
+        self.cancel_btn.clicked.connect(self.reject)
+    def get_values(self):
+        return {k: v.text() for k, v in self.fields.items()}
+
 class Registrar:
     def __init__(self, vector_store, similarity_threshold: float = 0.7):
         """
@@ -58,18 +90,34 @@ class Registrar:
             print(f"User đã tồn tại (UID={existing_uid}, similarity={score:.4f}), không thêm mới.")
             return existing_uid
         # 2) nếu chưa có thì yêu cầu nhập thông tin
-        if name is None:
-            name = input('Name: ')
-        if age is None:
-            age = input('Age: ')
-        if major is None:
-            major = input('Major: ')
-        if course is None:
-            course = input('Course: ')
-        if gmail is None:
-            gmail = input('Gmail: ')
-        if phone is None:
-            phone = input('Phone: ')
+        if PYQT5_AVAILABLE:
+            app = QApplication.instance() or QApplication(sys.argv)
+            dialog = UserInfoDialog()
+            if dialog.exec_() == QDialog.Accepted:
+                values = dialog.get_values()
+                name = values['name']
+                age = values['age']
+                major = values['major']
+                course = values['course']
+                gmail = values['gmail']
+                phone = values['phone']
+            else:
+                print("Registration cancelled by user.")
+                return None
+        else:
+            print("WARNING: PyQt5 not available, falling back to terminal input.")
+            if name is None:
+                name = input('Name: ')
+            if age is None:
+                age = input('Age: ')
+            if major is None:
+                major = input('Major: ')
+            if course is None:
+                course = input('Course: ')
+            if gmail is None:
+                gmail = input('Gmail: ')
+            if phone is None:
+                phone = input('Phone: ')
         
         uid = add_user(name, age, major, course, gmail, phone, emb)
         save_face_image(face_img, uid)
