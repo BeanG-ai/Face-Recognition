@@ -9,6 +9,32 @@ import platform
 # Fix OpenMP conflict issue
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
 
+# Setup DeepFace environment automatically
+def _setup_deepface_environment():
+    """Auto-setup DeepFace environment"""
+    try:
+        # Get project root directory
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(os.path.dirname(current_dir))
+        models_dir = os.path.join(project_root, "Project", "models")
+        
+        # Set DEEPFACE_HOME to project models directory
+        os.environ['DEEPFACE_HOME'] = models_dir
+        
+        # Create deepface directory structure if not exists
+        from pathlib import Path
+        deepface_dir = os.path.join(models_dir, ".deepface")
+        weights_dir = os.path.join(deepface_dir, "weights")
+        Path(deepface_dir).mkdir(parents=True, exist_ok=True)
+        Path(weights_dir).mkdir(parents=True, exist_ok=True)
+        
+        return True
+    except Exception:
+        return False
+
+# Auto-setup DeepFace environment
+_setup_deepface_environment()
+
 from collections import deque
 from threading import Lock
 import threading
@@ -38,9 +64,6 @@ from Project.utils.vector_store import FaissStore  # Use FAISS like recognition.
 
 # Import TensorRT utilities
 from Project.utils.tensorrt_utils import load_optimized_model
-# Import fisheye correction
-from Project.utils.FishEyeCalibrate import Defisheye
-from Project.utils.defisheye_config import get_defisheye_params
 
 
 class OptimizedFaceInference:
@@ -56,7 +79,8 @@ class OptimizedFaceInference:
                  antispoof_confidence_threshold=0.6,
                  optimize_for_speed=True,
                  use_tensorrt=True,
-                 precision='fp16'):
+                 precision='fp16',
+                 verbose=False):
         
         self.batch_size = batch_size
         self.face_confidence_threshold = face_confidence_threshold
@@ -64,6 +88,7 @@ class OptimizedFaceInference:
         self.optimize_for_speed = optimize_for_speed
         self.use_tensorrt = use_tensorrt
         self.precision = precision
+        self.verbose = verbose
         
         # Platform detection
         self.is_jetson = self._detect_jetson()
@@ -97,13 +122,14 @@ class OptimizedFaceInference:
         if preload_models and DEEPFACE_AVAILABLE:
             self._preload_models()
         
-        print(f"🚀 OptimizedFaceInference initialized")
-        print(f"   Platform: {'Jetson' if self.is_jetson else 'Windows' if self.is_windows else 'Linux'}")
-        print(f"   GPU Support: {'✅' if self.gpu_available else '❌'}")
-        print(f"   TURBO Mode: {'✅' if optimize_for_speed else '❌'}")
-        print(f"   Batch Size: {batch_size}")
-        print(f"   Embedding Model: {'TensorRT' if self.using_tensorrt else 'ONNX'}")
-        print(f"   FAISS Vector Store: {'✅' if hasattr(self, 'vector_store') else '❌'}")
+        if self.verbose:
+            print(f"🚀 OptimizedFaceInference initialized")
+            print(f"   Platform: {'Jetson' if self.is_jetson else 'Windows' if self.is_windows else 'Linux'}")
+            print(f"   GPU Support: {'✅' if self.gpu_available else '❌'}")
+            print(f"   TURBO Mode: {'✅' if optimize_for_speed else '❌'}")
+            print(f"   Batch Size: {batch_size}")
+            print(f"   Embedding Model: {'TensorRT' if self.using_tensorrt else 'ONNX'}")
+            print(f"   FAISS Vector Store: {'✅' if hasattr(self, 'vector_store') else '❌'}")
     
     def _detect_jetson(self):
         """Detect if running on Jetson platform"""
@@ -128,8 +154,10 @@ class OptimizedFaceInference:
             # Path to embedding model - FIXED: correct path structure
             models_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "Project", "models")
             model_path = os.path.join(models_dir, "inception_resnet_v1.onnx")
-            print(f"🔍 Loading embedding model from: {model_path}")
-            print(f"📁 Model exists: {os.path.exists(model_path)}")
+            
+            if self.verbose:
+                print(f"🔍 Loading embedding model from: {model_path}")
+                print(f"📁 Model exists: {os.path.exists(model_path)}")
             
             if not os.path.exists(model_path):
                 print(f"❌ Model file not found: {model_path}")
@@ -148,31 +176,37 @@ class OptimizedFaceInference:
                     # Load optimized model
                     self.embedding_model = load_optimized_model('inception_resnet_v1', precision=self.precision)
                     self.using_tensorrt = True
-                    print(f"✅ TensorRT embedding model loaded with {self.precision} precision")
+                    if self.verbose:
+                        print(f"✅ TensorRT embedding model loaded with {self.precision} precision")
                     return  # Success with TensorRT
                 except Exception as e:
-                    print(f"⚠️ TensorRT model loading failed: {e}")
-                    print("🔄 Falling back to ONNX Runtime")
+                    if self.verbose:
+                        print(f"⚠️ TensorRT model loading failed: {e}")
+                        print("🔄 Falling back to ONNX Runtime")
                     self.using_tensorrt = False
                     self.embedding_model = None
             
             # Use ONNX Runtime - EXACTLY like recognition.py
-            print("🔄 Loading ONNX Runtime session...")
+            if self.verbose:
+                print("🔄 Loading ONNX Runtime session...")
             providers = ['CPUExecutionProvider']  # Same as recognition.py
             
             try:
                 self.embedding_session = ort.InferenceSession(model_path, providers=providers)
-                print(f"✅ ONNX embedding session loaded with providers: {self.embedding_session.get_providers()}")
+                if self.verbose:
+                    print(f"✅ ONNX embedding session loaded with providers: {self.embedding_session.get_providers()}")
                 
-                # Test the session with dummy input
+                # Validate session with dummy input
                 dummy_input = np.random.randn(1, 3, 160, 160).astype(np.float32)
-                test_output = self.embedding_session.run(None, {'input': dummy_input})
-                print(f"✅ ONNX session test successful, output shape: {test_output[0].shape}")
+                self.embedding_session.run(None, {'input': dummy_input})
+                if self.verbose:
+                    print("✅ ONNX session validation successful")
                 
             except Exception as onnx_error:
                 print(f"❌ ONNX Runtime loading failed: {onnx_error}")
-                import traceback
-                traceback.print_exc()
+                if self.verbose:
+                    import traceback
+                    traceback.print_exc()
                 self.embedding_session = None
                 
         except Exception as e:
@@ -188,18 +222,20 @@ class OptimizedFaceInference:
         try:
             # Database path - FIXED: correct path structure
             database_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "Project", "database")
-            print(f"🔍 Database path: {database_path}")
-            print(f"📁 Database exists: {os.path.exists(database_path)}")
+            if self.verbose:
+                print(f"🔍 Database path: {database_path}")
+                print(f"📁 Database exists: {os.path.exists(database_path)}")
             
             # Embedding dimension (512 for Inception ResNet v1) - same as recognition.py
             emb_dim = 512
             faiss_index = os.path.join(database_path, 'faiss.index')
             faiss_meta = os.path.join(database_path, 'faiss_meta.json')
             
-            print(f"🔍 FAISS index path: {faiss_index}")
-            print(f"📁 FAISS index exists: {os.path.exists(faiss_index)}")
-            print(f"🔍 FAISS meta path: {faiss_meta}")
-            print(f"📁 FAISS meta exists: {os.path.exists(faiss_meta)}")
+            if self.verbose:
+                print(f"🔍 FAISS index path: {faiss_index}")
+                print(f"📁 FAISS index exists: {os.path.exists(faiss_index)}")
+                print(f"🔍 FAISS meta path: {faiss_meta}")
+                print(f"📁 FAISS meta exists: {os.path.exists(faiss_meta)}")
             
             self.vector_store = FaissStore(dim=emb_dim,
                                           index_path=faiss_index,
@@ -610,9 +646,10 @@ class TurboAuthenticationSystem:
     2. Continuous Mode: DeepFace realtime detection + anti-spoofing -> Verify -> Show realtime
     """
     
-    def __init__(self, face_threshold=0.6, antispoof_threshold=0.6):
+    def __init__(self, face_threshold=0.6, antispoof_threshold=0.6, verbose=False):
         self.face_threshold = face_threshold
         self.antispoof_threshold = antispoof_threshold
+        self.verbose = verbose
         
         # Initialize inference system với settings từ notebook
         self.inference_system = OptimizedFaceInference(
@@ -620,7 +657,8 @@ class TurboAuthenticationSystem:
             preload_models=True,
             face_confidence_threshold=face_threshold,
             antispoof_confidence_threshold=antispoof_threshold,
-            optimize_for_speed=True  # TURBO mode
+            optimize_for_speed=True,  # TURBO mode
+            verbose=verbose
         )
         
         # Initialize fallback detector for single mode guidance
@@ -633,17 +671,20 @@ class TurboAuthenticationSystem:
                 self.fallback_detector = FaceDetector(detector_model_path, use_tensorrt=False)
                 self.detector_available = True
                 self.use_opencv_detector = False
-                print("✅ Fallback detector (MediaPipe BlazeFace) initialized")
+                if self.verbose:
+                    print("✅ Fallback detector (MediaPipe BlazeFace) initialized")
             else:
                 # Try with OpenCV Haar cascade detector as backup
                 self.opencv_face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
                 if not self.opencv_face_cascade.empty():
                     self.detector_available = True
                     self.use_opencv_detector = True
-                    print("✅ Fallback detector (OpenCV Haar) initialized")
+                    if self.verbose:
+                        print("✅ Fallback detector (OpenCV Haar) initialized")
                 else:
                     self.detector_available = False
-                    print("⚠️ No face detector available - guidance disabled")
+                    if self.verbose:
+                        print("⚠️ No face detector available - guidance disabled")
         except Exception as e:
             # Final fallback to OpenCV
             try:
@@ -1181,20 +1222,22 @@ class TurboAuthenticationSystem:
             self.inference_system.cleanup()
 
 
-def simple_realtime_inference(duration=100, skip_frames=0, face_threshold=0.6, antispoof_threshold=0, turbo_mode=True):
+def simple_realtime_inference(duration=100, skip_frames=0, face_threshold=0.6, antispoof_threshold=0, turbo_mode=True, verbose=False):
     """
     Compatibility function - based on working notebook code
     Automatically routes to appropriate TURBO mode
     """
-    print(f"\n📞 simple_realtime_inference called:")
-    print(f"   duration={duration}, skip_frames={skip_frames}")
-    print(f"   face_threshold={face_threshold}, antispoof_threshold={antispoof_threshold}")
-    print(f"   turbo_mode={turbo_mode}")
+    if verbose:
+        print(f"\n📞 simple_realtime_inference called:")
+        print(f"   duration={duration}, skip_frames={skip_frames}")
+        print(f"   face_threshold={face_threshold}, antispoof_threshold={antispoof_threshold}")
+        print(f"   turbo_mode={turbo_mode}")
     
     # Initialize TURBO system
     auth_system = TurboAuthenticationSystem(
         face_threshold=face_threshold,
-        antispoof_threshold=antispoof_threshold
+        antispoof_threshold=antispoof_threshold,
+        verbose=verbose
     )
     
     # Determine mode based on duration
@@ -1353,37 +1396,11 @@ class FacialAuthenticationSystem:
             return []
     
     def close(self):
-        """Cleanup resources - compatible with original interface"""
-        print("🔄 Closing FacialAuthenticationSystem (TURBO)")
+        """Cleanup resources"""
+        if self.verbose:
+            print("🔄 Closing FacialAuthenticationSystem")
         if hasattr(self, 'turbo_system'):
             self.turbo_system.cleanup()
 
 
-# ===== ALIASES FOR COMPATIBILITY =====
-FaceAuthenticationSystem = FacialAuthenticationSystem
-AuthenticationSystem = FacialAuthenticationSystem
-
-
-# ===== MAIN EXECUTION =====
-if __name__ == "__main__":
-    print("🚀 TURBO Authentication System - Direct Run")
-    
-    # Test với config từ notebook
-    print("\n🔥 Testing with notebook config:")
-    print("   simple_realtime_inference(duration=100, skip_frames=0, face_threshold=0.6, antispoof_threshold=0, turbo_mode=True)")
-    
-    try:
-        result = simple_realtime_inference(
-            duration=10,  # Shortened for test
-            skip_frames=0, 
-            face_threshold=0.6, 
-            antispoof_threshold=0,
-            turbo_mode=True
-        )
-        print(f"\n✅ Test completed! Result: {result}")
-    except KeyboardInterrupt:
-        print("\n⏹️ Test interrupted by user")
-    except Exception as e:
-        print(f"\n❌ Test error: {e}")
-    
-    print("\n👋 Done!")
+# ===== CLEAN CODE - PURE UTILITY MODULE =====

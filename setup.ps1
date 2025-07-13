@@ -44,8 +44,8 @@ catch {
     Write-Host "System will run with ONNX Runtime without TensorRT." -ForegroundColor Yellow
 }
 
-# Create project directories
-Write-Host "Creating project structure..." -ForegroundColor Cyan
+# Create project directories and setup DeepFace
+Write-Host "Creating project structure and setting up DeepFace..." -ForegroundColor Cyan
 python setup_project.py
 
 # Check for model files
@@ -62,9 +62,9 @@ if (-not (Test-Path "Project\models\inception_resnet_v1.onnx")) {
     New-Item -ItemType Directory -Path "Project\models" -Force | Out-Null
 }
 
-# Setup DeepFace portable models
+# Setup DeepFace portable models using integrated setup_project.py
 Write-Host "Setting up DeepFace portable models..." -ForegroundColor Cyan
-python setup_deepface.py
+python setup_project.py
 if ($LASTEXITCODE -eq 0) {
     Write-Host "DeepFace setup completed successfully." -ForegroundColor Green
 } else {
