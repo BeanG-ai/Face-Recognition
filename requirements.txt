@@ -12,11 +12,14 @@ protobuf==3.20.3
 onnx>=1.12.0  # For ONNX model inspection and optimization
 deepface>=0.0.1  # Ensure DeepFace is installed
 # For CUDA and TensorRT support (optional but recommended for acceleration)
-nvidia-pyindex  # Required for installing nvidia packages
+# nvidia-pyindex  # Required for installing nvidia packages
 pycuda>=2022.1  # Required for TensorRT
-nvidia-tensorrt  # TensorRT Python bindings
+# nvidia-tensorrt  # TensorRT Python bindings
 onnxruntime-gpu  # GPU-accelerated ONNX Runtime
-
+torch 
+torchvision  # PyTorch and torchvision for model handling
+torchaudio  # PyTorch audio processing
+tf-keras
 # For Jetson-specific optimizations (only on Jetson hardware)
 # jetson-stats>=3.1.0  # For Jetson hardware monitoring
 # faiss-gpu>=1.7.0  # GPU acceleration of vector search (remove faiss-cpu first)
