@@ -1,7 +1,127 @@
 import os
 import json
 import sys
+import shutil
 from datetime import datetime
+from pathlib import Path
+
+def setup_deepface_environment():
+    """
+    Thiết lập môi trường DeepFace portable
+    Setup portable DeepFace environment
+    """
+    # Lấy thư mục project
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    project_dir = os.path.join(base_dir, "Project")
+    models_dir = os.path.join(project_dir, "models")
+    deepface_dir = os.path.join(models_dir, ".deepface")
+    weights_dir = os.path.join(deepface_dir, "weights")
+    
+    print(f"📁 Setting up DeepFace environment in: {models_dir}")
+    
+    # Tạo các thư mục cần thiết
+    try:
+        Path(models_dir).mkdir(parents=True, exist_ok=True)
+        Path(deepface_dir).mkdir(parents=True, exist_ok=True)
+        Path(weights_dir).mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        print(f"❌ Error creating DeepFace directories: {e}")
+        return False
+    
+    # Set environment variable
+    os.environ['DEEPFACE_HOME'] = models_dir
+    
+    # Di chuyển models cũ nếu có (silent)
+    old_deepface_path = os.path.expanduser("~/.deepface")
+    if os.path.exists(old_deepface_path):
+        try:
+            if os.path.exists(os.path.join(old_deepface_path, "weights")):
+                old_weights = os.path.join(old_deepface_path, "weights")
+                moved_count = 0
+                for file in os.listdir(old_weights):
+                    if file.endswith(('.h5', '.pb', '.pth', '.onnx')):
+                        src = os.path.join(old_weights, file)
+                        dst = os.path.join(weights_dir, file)
+                        if not os.path.exists(dst):  # Only copy if not exists
+                            shutil.copy2(src, dst)
+                            moved_count += 1
+                if moved_count > 0:
+                    print(f"✅ Moved {moved_count} existing DeepFace models to project directory")
+        except Exception as e:
+            print(f"⚠️ Warning: Could not migrate existing DeepFace models: {e}")
+    
+    print("✅ DeepFace environment setup completed")
+    return True
+
+def test_deepface_installation():
+    """
+    Test DeepFace installation and download required models
+    """
+    try:
+        # Check if DeepFace is installed
+        try:
+            from deepface import DeepFace
+            print("✅ DeepFace is installed")
+        except ImportError:
+            print("❌ DeepFace not installed. Run: pip install deepface")
+            return False
+        
+        # Test with a dummy image to trigger model downloads
+        print("📦 Testing DeepFace and downloading required models...")
+        
+        # Create a dummy image for testing
+        import numpy as np
+        import cv2
+        
+        dummy_image = np.random.randint(0, 255, (224, 224, 3), dtype=np.uint8)
+        dummy_path = "temp_test_image.jpg"
+        cv2.imwrite(dummy_path, dummy_image)
+        
+        try:
+            # Test anti-spoofing (will download required models)
+            face_objs = DeepFace.extract_faces(
+                img_path=dummy_path, 
+                anti_spoofing=True,
+                enforce_detection=False  # Don't fail if no face detected in dummy image
+            )
+            print("✅ Anti-spoofing models downloaded successfully")
+        except Exception as e:
+            print(f"⚠️ Anti-spoofing test failed (models may still be downloaded): {e}")
+        
+        # Cleanup dummy image
+        if os.path.exists(dummy_path):
+            os.remove(dummy_path)
+        
+        return True
+        
+    except Exception as e:
+        print(f"❌ DeepFace test failed: {e}")
+        return False
+
+def show_deepface_models():
+    """Hiển thị thông tin models DeepFace đã tải"""
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    weights_dir = os.path.join(base_dir, "Project", "models", ".deepface", "weights")
+    
+    if os.path.exists(weights_dir):
+        models = [f for f in os.listdir(weights_dir) if f.endswith(('.h5', '.pb', '.pth', '.onnx', '.tflite'))]
+        
+        if models:
+            print(f"\n📦 DeepFace models downloaded ({len(models)} files):")
+            total_size = 0
+            for model in models:
+                model_path = os.path.join(weights_dir, model)
+                try:
+                    size_mb = os.path.getsize(model_path) / (1024 * 1024)
+                    total_size += size_mb
+                    print(f"   {model}: {size_mb:.1f} MB")
+                except:
+                    print(f"   {model}: Size unknown")
+            print(f"💾 Total DeepFace models size: {total_size:.1f} MB")
+        else:
+            print("\n📦 No DeepFace models downloaded yet")
+    else:
+        print("\n📦 DeepFace weights directory not created yet")
 
 def ensure_project_structure():
     """
@@ -113,7 +233,7 @@ def check_dependencies():
     """
     required_packages = [
         "numpy", "opencv-python", "onnxruntime", "mediapipe", 
-        "faiss-cpu", "pillow", "tensorflow"
+        "faiss-cpu", "pillow", "tensorflow", "deepface"
     ]
     
     missing_packages = []
@@ -126,6 +246,8 @@ def check_dependencies():
                     __import__("faiss")
                 except ImportError:
                     missing_packages.append(package)
+            elif package_name == "opencv_python":
+                __import__("cv2")
             else:
                 __import__(package_name)
         except ImportError:
@@ -138,10 +260,40 @@ def check_dependencies():
         print("\nPlease install them using: pip install " + " ".join(missing_packages))
         return False
     
-    print("All required dependencies are installed.")
+    print("✅ All required dependencies are installed.")
     return True
 
 
 if __name__ == "__main__":
-    check_dependencies()
+    print("🚀 Setting up Face Recognition Project...")
+    print("=" * 50)
+    
+    # Step 1: Check dependencies
+    print("\n1. Checking dependencies...")
+    deps_ok = check_dependencies()
+    
+    # Step 2: Ensure project structure
+    print("\n2. Setting up project structure...")
     ensure_project_structure()
+    
+    # Step 3: Setup DeepFace environment
+    print("\n3. Setting up DeepFace environment...")
+    deepface_ok = setup_deepface_environment()
+    
+    # Step 4: Test DeepFace and download models
+    if deps_ok and deepface_ok:
+        print("\n4. Testing DeepFace installation...")
+        deepface_test_ok = test_deepface_installation()
+        
+        # Step 5: Show DeepFace models
+        if deepface_test_ok:
+            show_deepface_models()
+    
+    print("\n" + "=" * 50)
+    print("🎉 Project setup completed!")
+    print("\nNext steps:")
+    print("1. Place your model files in Project/models/:")
+    print("   - inception_resnet_v1.onnx")
+    print("   - blaze_face_short_range.tflite")
+    print("2. Run: python main.py --mode registration --username <name>")
+    print("3. Run: python main.py --mode authentication --auth-mode continuous")

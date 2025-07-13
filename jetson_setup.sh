@@ -108,18 +108,9 @@ else
     fi
 fi
 
-# Create necessary directories
-echo "Setting up project directories..."
+# Create necessary directories and setup DeepFace
+echo "Setting up project directories and DeepFace environment..."
 python setup_project.py
-
-# Setup DeepFace portable models
-echo "Setting up DeepFace portable models..."
-python3 setup_deepface.py
-if [ $? -eq 0 ]; then
-    echo "DeepFace setup completed successfully."
-else
-    echo "DeepFace setup encountered issues. Check logs above."
-fi
 
 # Run system check
 echo "Running system check..."

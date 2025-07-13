@@ -37,11 +37,17 @@ A comprehensive facial recognition and authentication system optimized for NVIDI
    cd face-recognition
    ```
 
-2. Setup the project:
+2. Setup the project (includes DeepFace configuration):
    - On Jetson: `./jetson_setup.sh`
    - On Windows: `.\setup.ps1`
    - On Linux: `bash setup.sh`
    - Manual setup: `pip install -r requirements.txt && python setup_project.py`
+
+   **Note**: The setup process will automatically:
+   - Install all required dependencies including DeepFace
+   - Configure DeepFace models in the project directory
+   - Download necessary anti-spoofing models
+   - Set up the complete project structure
 
 3. Optimize models with TensorRT (optional, recommended for performance):
    - On Windows: `.\optimize_models.ps1`

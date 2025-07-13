@@ -57,8 +57,8 @@ else
     echo "System will run with ONNX Runtime without TensorRT."
 fi
 
-# Create project directories
-echo "Creating project structure..."
+# Create project directories and setup DeepFace
+echo "Creating project structure and setting up DeepFace..."
 python setup_project.py
 
 # Check for model files
@@ -123,9 +123,9 @@ EOF
 python system_check.py
 rm system_check.py
 
-# Setup DeepFace portable models
+# Setup DeepFace portable models using integrated setup_project.py
 echo "Setting up DeepFace portable models..."
-python setup_deepface.py
+python setup_project.py
 if [ $? -eq 0 ]; then
     echo "DeepFace setup completed successfully."
 else
