@@ -742,7 +742,7 @@ class TurboAuthenticationSystem:
                 ret, frame = cap.read()
                 if not ret:
                     continue
-                
+                frame = cv2.flip(frame, 1)
                 display_frame = frame.copy()
                 h, w = display_frame.shape[:2]
                 
@@ -933,7 +933,7 @@ class TurboAuthenticationSystem:
                 ret, frame = cap.read()
                 if not ret:
                     continue
-                
+                frame = cv2.flip(frame, 1)
                 frame_count += 1
                 display_frame = frame.copy()
                 h, w = display_frame.shape[:2]
@@ -1296,7 +1296,7 @@ class FacialAuthenticationSystem:
     
     def __init__(self, detector_model_path=None, embedding_model_path=None, 
                  threshold=0.6, max_attempts=3, timeout=30, use_tensorrt=False,
-                 precision="fp16", stability_level=2, camera_mode="flat", fisheye_correction=False):
+                 precision="fp16", stability_level=2):
         
         print("🔄 Initializing FacialAuthenticationSystem (TURBO-backed)")
         
@@ -1306,7 +1306,6 @@ class FacialAuthenticationSystem:
         self.timeout = timeout
         self.use_tensorrt = use_tensorrt
         self.precision = precision
-        self.camera_mode = camera_mode
         
         # Initialize TURBO system
         self.turbo_system = TurboAuthenticationSystem(
