@@ -113,10 +113,12 @@ class MainMenu(QWidget):
             self.status.setText("Stopping...")
 
     def run_registration(self):
-        username, ok = QInputDialog.getText(self, "User Registration", "Enter username:")
-        if ok and username:
-            self.status.setText("Running registration...")
-            self.run_with_worker(["main.py", "--mode", "registration", "--username", username], "Registration completed.", "Registration failed.")
+        self.status.setText("Running registration...")
+        self.run_with_worker(["main.py", "--mode", "registration"], "Registration completed.", "Registration failed.")
+        # username, ok = QInputDialog.getText(self, "User Registration", "Enter username:")
+        # if ok and username:
+        #     self.status.setText("Running registration...")
+        #     self.run_with_worker(["main.py", "--mode", "registration", "--username", username], "Registration completed.", "Registration failed.")
 
     def run_recognition(self):
         self.status.setText("Running recognition...")

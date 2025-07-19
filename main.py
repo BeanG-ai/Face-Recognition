@@ -489,10 +489,10 @@ def main():
     try:
         if args.mode == 'registration':
             print("\n=== Face Registration Mode ===")
-            if not args.username:
-                print("ERROR: Username is required for registration mode.")
-                print("Usage: python main.py --mode registration --username <name>")
-                return
+            # if not args.username:
+            #     print("ERROR: Username is required for registration mode.")
+            #     print("Usage: python main.py --mode registration --username <name>")
+            #     return
                 
             app = FaceRegistrationApp(
                 detector_model_path=detector_model_path,

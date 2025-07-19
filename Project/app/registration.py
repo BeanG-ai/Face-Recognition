@@ -6,6 +6,7 @@ from Project.utils.database_utils import add_user, find_user_by_embedding
 from Project.utils.face_utils import save_face_image
 import sys
 import onnxruntime as ort
+import uuid
 
 # Import TensorRT utilities
 from Project.utils.tensorrt_utils import load_optimized_model
@@ -46,8 +47,25 @@ class UserInfoDialog(QDialog):
         layout.addLayout(btn_row)
         self.ok_btn.clicked.connect(self.accept)
         self.cancel_btn.clicked.connect(self.reject)
+    # def get_values(self):
+    #     return {k: v.text() for k, v in self.fields.items()}
     def get_values(self):
-        return {k: v.text() for k, v in self.fields.items()}
+        values = {k: v.text().strip() for k, v in self.fields.items()}
+    
+    # Kiểm tra bắt buộc các trường không bỏ trống
+        for field, value in values.items():
+            if not value:
+                raise ValueError(f"Trường '{field.capitalize()}' không được để trống.")
+        
+        # Ràng buộc định dạng cụ thể (có thể tùy chỉnh)
+        if '@' not in values['gmail']:
+            raise ValueError("Gmail không hợp lệ.")
+        
+        if not values['phone'].isdigit():
+            raise ValueError("Số điện thoại phải là số.")
+
+        return values
+
 
 class Registrar:
     def __init__(self, vector_store, similarity_threshold: float = 0.7):
@@ -91,16 +109,22 @@ class Registrar:
             app = QApplication.instance() or QApplication(sys.argv)
             dialog = UserInfoDialog()
             if dialog.exec_() == QDialog.Accepted:
-                values = dialog.get_values()
+                try:
+                    values = dialog.get_values()
+                except ValueError as e:
+                    print(f"Lỗi nhập liệu: {e}")
+                    return None,None  # hoặc lặp lại dialog nếu muốn
+
                 name = values['name']
                 age = values['age']
                 major = values['major']
                 course = values['course']
                 gmail = values['gmail']
                 phone = values['phone']
+
             else:
                 print("Registration cancelled by user.")
-                return None
+                return None,None  # hoặc lặp lại dialog nếu muốn
         else:
             print("WARNING: PyQt5 not available, falling back to terminal input.")
             if name is None:
@@ -125,7 +149,7 @@ class Registrar:
         self.vector_store.add(uid, emb_norm)  # ADDED: add embedding to FAISS
 
         print(f'Registered #{uid}: {name}')
-        return uid
+        return uid, name
 
 class FaceRegistrationApp:
     """
@@ -189,11 +213,12 @@ class FaceRegistrationApp:
     def run(self):
         """Run the face registration application."""
         print("Starting Face Registration Process...")
-        
-        # Get user name for directory creation
-        user_name = self.username or input("Enter user name for registration: ")
-        user_dir = os.path.join(self.database_path, "images", user_name)
-        
+        # Tạo thư mục tạm cho ảnh
+        temp_id = str(uuid.uuid4())  # Hoặc dùng time.time(), random…
+        user_dir = os.path.join(self.database_path, "images", temp_id)
+        if not os.path.exists(user_dir):
+            os.makedirs(user_dir)
+            
         # Create directory if it doesn't exist
         if not os.path.exists(user_dir):
             os.makedirs(user_dir)
@@ -237,7 +262,12 @@ class FaceRegistrationApp:
         cv2.destroyAllWindows()
         
         if enrollment.is_completed():
-            print("Registration completed successfully!")
+            print("Registration completed.")
+
+            image_paths = list(enrollment.captured_images.values())
+            if not image_paths:
+                print("Error: No face images were captured!")
+                return
 
             # 1) Tạo danh sách embeddings
             all_embeddings = []
@@ -252,12 +282,18 @@ class FaceRegistrationApp:
                 return
 
             avg_embedding = np.mean(all_embeddings, axis=0)
-            first_image = cv2.imread(list(enrollment.captured_images.values())[0])
+            # first_image = cv2.imread(list(enrollment.captured_images.values())[0])
+            
+            first_image = cv2.imread(image_paths[0])
+            if first_image is None:
+                print("Error: Failed to read the first image.")
+                return
 
             # 2) Kiểm tra xem user đã tồn tại chưa
             existing_uid, score = self.registrar.match(avg_embedding)
             if existing_uid is not None:
                 print(f"User đã tồn tại (UID={existing_uid}, similarity={score:.4f}), không thêm mới.")
+
                 
                 # 3) Xóa toàn bộ ảnh đã capture (tránh sao chép)
                 for img_path in enrollment.captured_images.values():
@@ -274,7 +310,23 @@ class FaceRegistrationApp:
                 return
 
             # 4) Nếu chưa có, đăng ký mới như trước
-            self.registrar.register_new(first_image, avg_embedding, name=user_name)
-            print(f"User {user_name} has been registered successfully with multi-angle face data.")
-        else:
-            print("Registration was not completed.")
+            new_user_id, real_name = self.registrar.register_new(first_image, avg_embedding)
+            if new_user_id:
+                # Xử lý tên thư mục không dấu, không chứa ký tự đặc biệt
+                folder_name = real_name.strip().replace(" ", "_")
+                real_user_dir = os.path.join(self.database_path, "images",folder_name )   #str(new_user_id)
+                os.rename(user_dir, real_user_dir)
+                print(f"✅ User '{real_name}' đã được đăng ký với folder ảnh: {folder_name}")
+            else:
+    # Cleanup nếu đăng ký thất bại hoặc thông tin không hợp lệ
+                for img_path in image_paths:
+                    try:
+                        os.remove(img_path)
+                    except OSError:
+                        pass
+                if os.path.isdir(user_dir) and not os.listdir(user_dir):
+                    os.rmdir(user_dir)
+                print("Thông tin không hợp lệ. Đã xóa toàn bộ dữ liệu tạm thời.")
+                return
+           
+
