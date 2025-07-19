@@ -736,7 +736,7 @@ class TurboAuthenticationSystem:
         show_result = False
         processed_frame = None
         face_stable_frames = 0  # Counter for stable face detection
-        required_stable_frames = 10  # Require face to be stable for 10 frames before auto-capture
+        required_stable_frames = 30  # Require face to be stable for 10 frames before auto-capture
         
         try:
             while True:
