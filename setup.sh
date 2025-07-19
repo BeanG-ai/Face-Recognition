@@ -39,20 +39,35 @@ print_info() {
 # Task 1: Check Python version and system
 print_task "Checking system requirements"
 PYTHON_VERSION=$(python3 --version 2>&1 | grep -oP '(?<=Python )\d+\.\d+')
-if command -v bc > /dev/null 2>&1; then
-    if [[ $(echo "$PYTHON_VERSION >= 3.8" | bc -l) -eq 1 ]]; then
-        print_success "Python $PYTHON_VERSION is compatible"
+
+# Function to compare version numbers properly
+version_compare() {
+    local version1="$1"
+    local version2="$2"
+    
+    # Convert versions to comparable format (e.g., 3.10 -> 310, 3.8 -> 308)
+    local v1_major=$(echo "$version1" | cut -d. -f1)
+    local v1_minor=$(echo "$version1" | cut -d. -f2)
+    local v2_major=$(echo "$version2" | cut -d. -f1)
+    local v2_minor=$(echo "$version2" | cut -d. -f2)
+    
+    local v1_num=$((v1_major * 100 + v1_minor))
+    local v2_num=$((v2_major * 100 + v2_minor))
+    
+    if [ "$v1_num" -ge "$v2_num" ]; then
+        return 0  # version1 >= version2
     else
-        print_error "Python $PYTHON_VERSION is too old. Requires Python 3.8 or higher"
-        exit 1
+        return 1  # version1 < version2
     fi
+}
+
+# Check Python version using proper version comparison
+if version_compare "$PYTHON_VERSION" "3.8"; then
+    print_success "Python $PYTHON_VERSION is compatible"
 else
-    # Fallback comparison without bc
-    if [[ "$PYTHON_VERSION" > "3.8" || "$PYTHON_VERSION" == "3.8" ]]; then
-        print_success "Python $PYTHON_VERSION is compatible"
-    else
-        print_error "Python $PYTHON_VERSION may be too old. Requires Python 3.8 or higher"
-    fi
+    print_error "Python $PYTHON_VERSION is too old. Requires Python 3.8 or higher"
+    print_info "Current version: $PYTHON_VERSION, Required: 3.8+"
+    exit 1
 fi
 
 # Check OS

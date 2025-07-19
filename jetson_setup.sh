@@ -38,27 +38,144 @@ print_info() {
 
 # Task 1: Check Jetson platform
 print_task "Checking Jetson platform"
+
+# Multiple detection methods for Jetson devices
+IS_JETSON=false
+JETSON_MODEL=""
+
+# Method 1: Check for traditional Jetson marker
 if [ -d "/sys/devices/platform/host1x" ]; then
-    print_success "Running on Jetson device"
     IS_JETSON=true
-else
-    print_warning "This does not appear to be a Jetson device"
-    print_info "Some optimizations may not work correctly"
-    read -p "Continue anyway? (y/n) " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        exit 1
+    print_info "Detected via host1x platform"
+fi
+
+# Method 2: Check device tree model (more reliable for Jetson Orin)
+if [ -f "/proc/device-tree/model" ]; then
+    MODEL_INFO=$(cat /proc/device-tree/model 2>/dev/null | tr -d '\0')
+    if echo "$MODEL_INFO" | grep -iq "jetson\|tegra\|orin\|xavier\|nano"; then
+        IS_JETSON=true
+        JETSON_MODEL="$MODEL_INFO"
+        print_info "Detected via device tree: $JETSON_MODEL"
     fi
-    IS_JETSON=false
+fi
+
+# Method 3: Check for Tegra SoC via nvidia-smi or tegrastats
+if command -v tegrastats > /dev/null 2>&1; then
+    IS_JETSON=true
+    print_info "Detected via tegrastats command"
+fi
+
+# Method 4: Check for NVGPU driver (Jetson Orin specific)
+if [ -d "/sys/bus/platform/drivers/nvgpu" ] || [ -d "/sys/devices/platform/17000000.ga10b" ]; then
+    IS_JETSON=true
+    print_info "Detected via NVGPU driver (Jetson Orin)"
+fi
+
+# Method 5: Check for L4T version (Linux for Tegra)
+if [ -f "/etc/nv_tegra_release" ]; then
+    IS_JETSON=true
+    L4T_VERSION=$(cat /etc/nv_tegra_release | head -1)
+    print_info "Detected via L4T: $L4T_VERSION"
+fi
+
+# Method 6: Check nvidia-smi for Tegra/Orin GPU
+if command -v nvidia-smi > /dev/null 2>&1; then
+    GPU_INFO=$(nvidia-smi -L 2>/dev/null || true)
+    if echo "$GPU_INFO" | grep -iq "tegra\|orin\|xavier"; then
+        IS_JETSON=true
+        print_info "Detected via nvidia-smi: GPU contains Tegra/Orin"
+    fi
+fi
+
+# Method 7: Check for Jetson-specific directories
+JETSON_DIRS=(
+    "/sys/devices/platform/tegra-fuse"
+    "/sys/devices/platform/tegra-pmc"
+    "/sys/devices/soc0"
+    "/proc/device-tree/compatible"
+)
+
+for dir in "${JETSON_DIRS[@]}"; do
+    if [ -e "$dir" ]; then
+        if [ -f "$dir" ]; then
+            # It's a file, check contents
+            if grep -iq "tegra\|jetson\|orin\|xavier" "$dir" 2>/dev/null; then
+                IS_JETSON=true
+                print_info "Detected via $dir file contents"
+                break
+            fi
+        else
+            # It's a directory
+            IS_JETSON=true
+            print_info "Detected via directory: $dir"
+            break
+        fi
+    fi
+done
+
+# Final verification and user override
+if [ "$IS_JETSON" = true ]; then
+    print_success "✅ Jetson device detected!"
+    if [ -n "$JETSON_MODEL" ]; then
+        print_info "Model: $JETSON_MODEL"
+    fi
+    
+    # Check for specific Orin features
+    if echo "$JETSON_MODEL" | grep -iq "orin" || [ -d "/sys/devices/platform/17000000.ga10b" ]; then
+        print_info "Jetson Orin specific optimizations will be applied"
+        JETSON_ORIN=true
+    else
+        JETSON_ORIN=false
+    fi
+else
+    print_warning "⚠️ Could not automatically detect Jetson device"
+    print_info "You mentioned: NVIDIA Tegra Orin (nvgpu)"
+    print_info "This suggests you are on a Jetson Orin device"
+    echo
+    read -p "Are you running on a Jetson device? [y/N]: " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        IS_JETSON=true
+        JETSON_ORIN=true
+        print_success "✅ Jetson mode enabled by user confirmation"
+        print_info "Assuming Jetson Orin based on your GPU information"
+    else
+        print_info "Continuing in standard Linux mode"
+        print_warning "Some Jetson-specific optimizations will be skipped"
+    fi
 fi
 
 # Task 2: Check Python version
 print_task "Checking Python version"
 PYTHON_VERSION=$(python3 --version 2>&1 | grep -oP '(?<=Python )\d+\.\d+')
-if [[ $(echo "$PYTHON_VERSION >= 3.8" | bc -l) -eq 1 ]]; then
+
+# Function to compare version numbers properly
+version_compare() {
+    local version1="$1"
+    local version2="$2"
+    
+    # Convert versions to comparable format (e.g., 3.10 -> 310, 3.8 -> 308)
+    local v1_major=$(echo "$version1" | cut -d. -f1)
+    local v1_minor=$(echo "$version1" | cut -d. -f2)
+    local v2_major=$(echo "$version2" | cut -d. -f1)
+    local v2_minor=$(echo "$version2" | cut -d. -f2)
+    
+    local v1_num=$((v1_major * 100 + v1_minor))
+    local v2_num=$((v2_major * 100 + v2_minor))
+    
+    if [ "$v1_num" -ge "$v2_num" ]; then
+        return 0  # version1 >= version2
+    else
+        return 1  # version1 < version2
+    fi
+}
+
+# Check Python version using proper version comparison
+if version_compare "$PYTHON_VERSION" "3.8"; then
     print_success "Python $PYTHON_VERSION is compatible"
 else
     print_error "Python $PYTHON_VERSION is too old. Requires Python 3.8 or higher"
+    print_info "Current version: $PYTHON_VERSION, Required: 3.8+"
     exit 1
 fi
 
@@ -92,16 +209,48 @@ if command -v tensorrt &> /dev/null || python3 -c "import tensorrt" &> /dev/null
 else
     if [ "$IS_JETSON" = true ]; then
         print_info "Installing TensorRT for Jetson..."
-        if sudo apt-get update > /dev/null 2>&1 && sudo apt-get install -y tensorrt > /dev/null 2>&1; then
-            print_success "TensorRT installed via apt"
+        
+        # For Jetson Orin, try different installation methods
+        if [ "$JETSON_ORIN" = true ]; then
+            print_info "Applying Jetson Orin specific TensorRT setup..."
+            
+            # Check if TensorRT is available via apt
+            if sudo apt-get update > /dev/null 2>&1 && apt-cache search tensorrt | grep -q tensorrt; then
+                if sudo apt-get install -y python3-libnvinfer-dev tensorrt > /dev/null 2>&1; then
+                    print_success "TensorRT installed via apt (Orin method)"
+                else
+                    print_warning "Failed to install TensorRT via apt"
+                fi
+            else
+                print_info "TensorRT not available via apt, trying pip..."
+            fi
+            
+            # Try to install Python bindings
+            if pip install nvidia-tensorrt > /dev/null 2>&1; then
+                print_success "TensorRT Python bindings installed"
+            else
+                print_warning "TensorRT Python bindings installation failed"
+            fi
         else
-            print_warning "Failed to install TensorRT via apt"
+            # Standard Jetson installation
+            if sudo apt-get update > /dev/null 2>&1 && sudo apt-get install -y tensorrt > /dev/null 2>&1; then
+                print_success "TensorRT installed via apt"
+            else
+                print_warning "Failed to install TensorRT via apt"
+            fi
         fi
         
+        # Install PyCUDA for Jetson
         if pip install nvidia-pyindex pycuda > /dev/null 2>&1; then
             print_success "PyCUDA installed"
         else
             print_warning "Failed to install PyCUDA"
+            # Try alternative installation
+            if pip install pycuda > /dev/null 2>&1; then
+                print_success "PyCUDA installed (alternative method)"
+            else
+                print_warning "PyCUDA installation failed completely"
+            fi
         fi
     else
         print_warning "TensorRT setup skipped (not on Jetson)"
@@ -110,9 +259,15 @@ fi
 
 # Verify TensorRT installation
 if python3 -c "import tensorrt" &> /dev/null; then
-    print_success "TensorRT verification successful"
+    # Get TensorRT version if possible
+    TRT_VERSION=$(python3 -c "import tensorrt; print(tensorrt.__version__)" 2>/dev/null || echo "unknown")
+    print_success "TensorRT verification successful (version: $TRT_VERSION)"
 else
     print_warning "TensorRT not available. System will run without TensorRT acceleration"
+    print_info "For Jetson Orin, you may need to:"
+    print_info "  1. sudo apt update && sudo apt install tensorrt"
+    print_info "  2. pip install nvidia-tensorrt"
+    print_info "  3. Ensure CUDA is properly installed"
 fi
 
 # Task 6: Setup ONNX Runtime with CUDA support
@@ -122,15 +277,74 @@ pip uninstall -y onnxruntime onnxruntime-cpu &> /dev/null || true
 
 if [ "$IS_JETSON" = true ]; then
     print_info "Installing ONNX Runtime GPU for Jetson..."
-    if pip install --extra-index-url https://developer.download.nvidia.com/compute/redist/jp/v51 onnxruntime-gpu > /dev/null 2>&1; then
-        print_success "ONNX Runtime GPU installed"
+    
+    if [ "$JETSON_ORIN" = true ]; then
+        print_info "Using Jetson Orin optimized installation..."
+        
+        # Try multiple installation sources for Jetson Orin
+        ONNX_INSTALLED=false
+        
+        # Method 1: Try NVIDIA's official Jetson repository (JetPack 5.1+)
+        if pip install --extra-index-url https://developer.download.nvidia.com/compute/redist/jp/v51 onnxruntime-gpu > /dev/null 2>&1; then
+            print_success "ONNX Runtime GPU installed (JetPack 5.1 repo)"
+            ONNX_INSTALLED=true
+        elif pip install --extra-index-url https://developer.download.nvidia.com/compute/redist/jp/v50 onnxruntime-gpu > /dev/null 2>&1; then
+            print_success "ONNX Runtime GPU installed (JetPack 5.0 repo)"
+            ONNX_INSTALLED=true
+        fi
+        
+        # Method 2: Try standard PyPI with GPU support
+        if [ "$ONNX_INSTALLED" = false ]; then
+            if pip install onnxruntime-gpu > /dev/null 2>&1; then
+                print_success "ONNX Runtime GPU installed (PyPI)"
+                ONNX_INSTALLED=true
+            fi
+        fi
+        
+        # Method 3: Fallback to CPU version
+        if [ "$ONNX_INSTALLED" = false ]; then
+            print_warning "ONNX Runtime GPU failed, installing CPU version"
+            pip install onnxruntime > /dev/null 2>&1
+            print_info "ONNX Runtime CPU installed as fallback"
+        fi
     else
-        print_warning "ONNX Runtime GPU failed, installing CPU version"
-        pip install onnxruntime > /dev/null 2>&1
+        # Standard Jetson (Xavier, Nano, etc.)
+        if pip install --extra-index-url https://developer.download.nvidia.com/compute/redist/jp/v51 onnxruntime-gpu > /dev/null 2>&1; then
+            print_success "ONNX Runtime GPU installed"
+        else
+            print_warning "ONNX Runtime GPU failed, installing CPU version"
+            pip install onnxruntime > /dev/null 2>&1
+        fi
     fi
 else
     print_info "Installing standard ONNX Runtime..."
     pip install onnxruntime > /dev/null 2>&1
+fi
+
+# Verify ONNX Runtime installation and check providers
+if python3 -c "import onnxruntime" &> /dev/null; then
+    ORT_VERSION=$(python3 -c "import onnxruntime; print(onnxruntime.__version__)" 2>/dev/null || echo "unknown")
+    PROVIDERS=$(python3 -c "import onnxruntime; print(onnxruntime.get_available_providers())" 2>/dev/null || echo "[]")
+    
+    print_success "ONNX Runtime installed successfully (version: $ORT_VERSION)"
+    print_info "Available providers: $PROVIDERS"
+    
+    # Check for CUDA support
+    if echo "$PROVIDERS" | grep -q "CUDAExecutionProvider"; then
+        print_success "CUDA execution provider available"
+    else
+        print_warning "CUDA execution provider not available"
+    fi
+    
+    # Check for TensorRT support
+    if echo "$PROVIDERS" | grep -q "TensorrtExecutionProvider"; then
+        print_success "TensorRT execution provider available"
+    else
+        print_info "TensorRT execution provider not available"
+    fi
+else
+    print_error "ONNX Runtime installation failed"
+    exit 1
 fi
 
 # Task 7: Setup PyCUDA for TensorRT optimization
