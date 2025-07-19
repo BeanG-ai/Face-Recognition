@@ -707,19 +707,18 @@ class TurboAuthenticationSystem:
     
     def single_mode_authentication(self, timeout=None):
         """
-        Single Mode Flow (Updated):
+        Single Mode Flow (Auto-Capture):
         1. Sử dụng detector model đã code sẵn để guidance - lặp vô hạn
         2. Hiển thị hướng dẫn đưa mặt vào khung (thông báo khi detect được mặt)
-        3. Không sử dụng timeout - chỉ thoát bằng ESC
-        4. Bấm SPACE để capture frame -> dừng real-time
-        5. Đưa frame vào DeepFace để kiểm tra thật/giả
-        6. Nếu thật -> xử lý embedding và so sánh database
-        7. Hiển thị kết quả processed frame cho đến khi bấm nút đóng
+        3. TỰ ĐỘNG chụp khi mặt ở đúng vị trí (không cần nhấn SPACE)
+        4. Dừng real-time và xử lý với DeepFace
+        5. Hiển thị kết quả cho đến khi người dùng quyết định
+        6. SPACE để thử lại, ESC để thoát
         """
-        print("\n🔍 SINGLE MODE - Authentication with Detector Guidance")
+        print("\n🔍 SINGLE MODE - Auto-Capture Authentication")
         print("   Position your face in the guide box")
-        print("   Press SPACE to capture, ESC to exit")
-        print("   No timeout - runs until you exit")
+        print("   Auto-capture when face is in position")
+        print("   ESC to exit anytime")
         
         cap = cv2.VideoCapture(0)
         if not cap.isOpened():
@@ -736,6 +735,8 @@ class TurboAuthenticationSystem:
         verification_result = None
         show_result = False
         processed_frame = None
+        face_stable_frames = 0  # Counter for stable face detection
+        required_stable_frames = 10  # Require face to be stable for 10 frames before auto-capture
         
         try:
             while True:
@@ -747,7 +748,7 @@ class TurboAuthenticationSystem:
                 h, w = display_frame.shape[:2]
                 
                 if not show_result:
-                    # Phase 1: Continuous Detector Guidance (No timeout)
+                    # Phase 1: Auto-Capture Mode with Face Guidance
                     center_x, center_y = w // 2, h // 2
                     box_size = min(w, h) // 3
                     
@@ -790,7 +791,7 @@ class TurboAuthenticationSystem:
                                         center_y - box_size//2 < face_center_y < center_y + box_size//2):
                                         face_in_position = True
                                         cv2.rectangle(display_frame, (x, y), (x + w_face, y + h_face), (0, 255, 0), 2)
-                                        cv2.putText(display_frame, "READY TO CAPTURE", 
+                                        cv2.putText(display_frame, f"CAPTURING... {face_stable_frames}/{required_stable_frames}", 
                                                   (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
                                     else:
                                         cv2.rectangle(display_frame, (x, y), (x + w_face, y + h_face), (255, 0, 0), 2)
@@ -801,10 +802,26 @@ class TurboAuthenticationSystem:
                             # Fallback to simple detection
                             face_detected = False
                     
+                    # Auto-capture logic
+                    if face_in_position:
+                        face_stable_frames += 1
+                        if face_stable_frames >= required_stable_frames:
+                            print("📸 Auto-capturing frame...")
+                            captured_frame = frame.copy()
+                            
+                            # Stop real-time and verify with DeepFace
+                            print("⏸️ Real-time stopped - Processing with DeepFace...")
+                            verification_result, processed_frame = self._verify_frame_with_deepface(captured_frame)
+                            show_result = True
+                            face_stable_frames = 0  # Reset counter
+                    else:
+                        face_stable_frames = 0  # Reset if face not in position
+                    
                     # Status display
                     if face_detected:
                         if face_in_position:
-                            status = f"✅ FACE IN POSITION ({face_count} detected) - Press SPACE"
+                            progress = min(100, int((face_stable_frames / required_stable_frames) * 100))
+                            status = f"✅ FACE IN POSITION - AUTO-CAPTURING {progress}%"
                             color = (0, 255, 0)
                         else:
                             status = f"⚠️ MOVE TO GREEN BOX ({face_count} detected)"
@@ -814,8 +831,8 @@ class TurboAuthenticationSystem:
                         color = (0, 0, 255)
                     
                     cv2.putText(display_frame, status, (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
-                    cv2.putText(display_frame, "SPACE: Capture | ESC: Exit", (50, h - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-                    cv2.putText(display_frame, "No timeout - runs until exit", (50, h - 60), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+                    cv2.putText(display_frame, "Auto-capture when face is stable | ESC: Exit", (50, h - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                    cv2.putText(display_frame, "No manual capture needed", (50, h - 60), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
                 
                 else:
                     # Phase 2: Show processed verification result
@@ -849,33 +866,21 @@ class TurboAuthenticationSystem:
                             cv2.putText(display_frame, f"Reason: {reason}", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
                         
                         cv2.putText(display_frame, status, (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
-                        cv2.putText(display_frame, "ESC: Exit | SPACE: Try Again", (50, h - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                        cv2.putText(display_frame, "SPACE: Try Again | ESC: Exit", (50, h - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
                 
                 cv2.imshow('Single Mode Authentication', display_frame)
                 
                 key = cv2.waitKey(1) & 0xFF
                 if key == 27:  # ESC
                     break
-                elif key == ord(' '):
-                    if not show_result:
-                        # SPACE to capture in guidance phase
-                        if face_in_position:  # Only capture if face is in position
-                            print("📸 Capturing frame...")
-                            captured_frame = frame.copy()
-                            
-                            # Stop real-time and verify with DeepFace
-                            print("⏸️ Real-time stopped - Processing with DeepFace...")
-                            verification_result, processed_frame = self._verify_frame_with_deepface(captured_frame)
-                            show_result = True
-                        else:
-                            print("⚠️ Please position face in green box first")
-                    else:
-                        # SPACE to try again in result phase
-                        print("🔄 Trying again...")
-                        show_result = False
-                        verification_result = None
-                        processed_frame = None
-                        captured_frame = None
+                elif key == ord(' ') and show_result:
+                    # SPACE to try again only when showing result
+                    print("🔄 Trying again...")
+                    show_result = False
+                    verification_result = None
+                    processed_frame = None
+                    captured_frame = None
+                    face_stable_frames = 0
             
             cv2.destroyAllWindows()
             return verification_result
@@ -924,7 +929,6 @@ class TurboAuthenticationSystem:
                 if not ret:
                     continue
                 
-                frame_count += 1
                 display_frame = frame.copy()
                 h, w = display_frame.shape[:2]
                 
@@ -1233,11 +1237,13 @@ class FacialAuthenticationSystem:
         self.timeout = timeout
         self.use_tensorrt = use_tensorrt
         self.precision = precision
+        self.verbose = False  # Add missing verbose attribute
         
         # Initialize TURBO system
         self.turbo_system = TurboAuthenticationSystem(
             face_threshold=threshold,
-            antispoof_threshold=0.6  # Default antispoof threshold
+            antispoof_threshold=0.6,  # Default antispoof threshold
+            verbose=self.verbose
         )
         
         # Compatibility attributes
