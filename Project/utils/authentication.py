@@ -707,19 +707,18 @@ class TurboAuthenticationSystem:
     
     def single_mode_authentication(self, timeout=None):
         """
-        Single Mode Flow (Updated):
+        Single Mode Flow (Auto-Capture):
         1. Sử dụng detector model đã code sẵn để guidance - lặp vô hạn
         2. Hiển thị hướng dẫn đưa mặt vào khung (thông báo khi detect được mặt)
-        3. Không sử dụng timeout - chỉ thoát bằng ESC
-        4. Bấm SPACE để capture frame -> dừng real-time
-        5. Đưa frame vào DeepFace để kiểm tra thật/giả
-        6. Nếu thật -> xử lý embedding và so sánh database
-        7. Hiển thị kết quả processed frame cho đến khi bấm nút đóng
+        3. TỰ ĐỘNG chụp khi mặt ở đúng vị trí (không cần nhấn SPACE)
+        4. Dừng real-time và xử lý với DeepFace
+        5. Hiển thị kết quả cho đến khi người dùng quyết định
+        6. SPACE để thử lại, ESC để thoát
         """
-        print("\n🔍 SINGLE MODE - Authentication with Detector Guidance")
+        print("\n🔍 SINGLE MODE - Auto-Capture Authentication")
         print("   Position your face in the guide box")
-        print("   Press SPACE to capture, ESC to exit")
-        print("   No timeout - runs until you exit")
+        print("   Auto-capture when face is in position")
+        print("   ESC to exit anytime")
         
         cap = cv2.VideoCapture(0)
         if not cap.isOpened():
@@ -736,6 +735,8 @@ class TurboAuthenticationSystem:
         verification_result = None
         show_result = False
         processed_frame = None
+        face_stable_frames = 0  # Counter for stable face detection
+        required_stable_frames = 30  # Require face to be stable for 10 frames before auto-capture
         
         try:
             while True:
@@ -747,7 +748,7 @@ class TurboAuthenticationSystem:
                 h, w = display_frame.shape[:2]
                 
                 if not show_result:
-                    # Phase 1: Continuous Detector Guidance (No timeout)
+                    # Phase 1: Auto-Capture Mode with Face Guidance
                     center_x, center_y = w // 2, h // 2
                     box_size = min(w, h) // 3
                     
@@ -790,7 +791,7 @@ class TurboAuthenticationSystem:
                                         center_y - box_size//2 < face_center_y < center_y + box_size//2):
                                         face_in_position = True
                                         cv2.rectangle(display_frame, (x, y), (x + w_face, y + h_face), (0, 255, 0), 2)
-                                        cv2.putText(display_frame, "READY TO CAPTURE", 
+                                        cv2.putText(display_frame, f"CAPTURING... {face_stable_frames}/{required_stable_frames}", 
                                                   (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
                                     else:
                                         cv2.rectangle(display_frame, (x, y), (x + w_face, y + h_face), (255, 0, 0), 2)
@@ -801,10 +802,26 @@ class TurboAuthenticationSystem:
                             # Fallback to simple detection
                             face_detected = False
                     
+                    # Auto-capture logic
+                    if face_in_position:
+                        face_stable_frames += 1
+                        if face_stable_frames >= required_stable_frames:
+                            print("📸 Auto-capturing frame...")
+                            captured_frame = frame.copy()
+                            
+                            # Stop real-time and verify with DeepFace
+                            print("⏸️ Real-time stopped - Processing with DeepFace...")
+                            verification_result, processed_frame = self._verify_frame_with_deepface(captured_frame)
+                            show_result = True
+                            face_stable_frames = 0  # Reset counter
+                    else:
+                        face_stable_frames = 0  # Reset if face not in position
+                    
                     # Status display
                     if face_detected:
                         if face_in_position:
-                            status = f"✅ FACE IN POSITION ({face_count} detected) - Press SPACE"
+                            progress = min(100, int((face_stable_frames / required_stable_frames) * 100))
+                            status = f"✅ FACE IN POSITION - AUTO-CAPTURING {progress}%"
                             color = (0, 255, 0)
                         else:
                             status = f"⚠️ MOVE TO GREEN BOX ({face_count} detected)"
@@ -814,8 +831,8 @@ class TurboAuthenticationSystem:
                         color = (0, 0, 255)
                     
                     cv2.putText(display_frame, status, (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
-                    cv2.putText(display_frame, "SPACE: Capture | ESC: Exit", (50, h - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-                    cv2.putText(display_frame, "No timeout - runs until exit", (50, h - 60), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+                    cv2.putText(display_frame, "Auto-capture when face is stable | ESC: Exit", (50, h - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                    cv2.putText(display_frame, "No manual capture needed", (50, h - 60), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
                 
                 else:
                     # Phase 2: Show processed verification result
@@ -849,33 +866,21 @@ class TurboAuthenticationSystem:
                             cv2.putText(display_frame, f"Reason: {reason}", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
                         
                         cv2.putText(display_frame, status, (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
-                        cv2.putText(display_frame, "ESC: Exit | SPACE: Try Again", (50, h - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                        cv2.putText(display_frame, "SPACE: Try Again | ESC: Exit", (50, h - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
                 
                 cv2.imshow('Single Mode Authentication', display_frame)
                 
                 key = cv2.waitKey(1) & 0xFF
                 if key == 27:  # ESC
                     break
-                elif key == ord(' '):
-                    if not show_result:
-                        # SPACE to capture in guidance phase
-                        if face_in_position:  # Only capture if face is in position
-                            print("📸 Capturing frame...")
-                            captured_frame = frame.copy()
-                            
-                            # Stop real-time and verify with DeepFace
-                            print("⏸️ Real-time stopped - Processing with DeepFace...")
-                            verification_result, processed_frame = self._verify_frame_with_deepface(captured_frame)
-                            show_result = True
-                        else:
-                            print("⚠️ Please position face in green box first")
-                    else:
-                        # SPACE to try again in result phase
-                        print("🔄 Trying again...")
-                        show_result = False
-                        verification_result = None
-                        processed_frame = None
-                        captured_frame = None
+                elif key == ord(' ') and show_result:
+                    # SPACE to try again only when showing result
+                    print("🔄 Trying again...")
+                    show_result = False
+                    verification_result = None
+                    processed_frame = None
+                    captured_frame = None
+                    face_stable_frames = 0
             
             cv2.destroyAllWindows()
             return verification_result
@@ -887,20 +892,17 @@ class TurboAuthenticationSystem:
             cap.release()
             cv2.destroyAllWindows()
     
-    def continuous_mode_authentication(self, duration=60, skip_frames=2):
+    def continuous_mode_authentication(self, duration=60, skip_frames=0):
         """
-        Continuous Mode Flow (Updated):
+        Continuous Mode Flow (Simplified):
         1. Mỗi frame sử dụng DeepFace làm detector chính + anti-spoofing
-        2. Khi xác định mặt thật -> crop dựa trên bounding box
-        3. Đưa vào embedding model và so sánh database
-        4. Hiển thị realtime liên tục cho đến khi nhấn nút đóng
-        5. Có frame skip và cache để giảm lag
+        2. Nếu mặt thật -> crop và so sánh database -> hiển thị tên (màu xanh lá cây)
+        3. Nếu mặt giả -> hiển thị "FAKE" (màu đỏ)
+        4. Không có frame skip - chạy ổn định real-time
         """
-        print("\n🔄 CONTINUOUS MODE - Real-time Authentication with DeepFace")
+        print("\n🔄 CONTINUOUS MODE - Real-time Authentication")
         print(f"   Running for {duration} seconds")
         print("   Press 'q' or ESC to exit")
-        print("   Press '1'/'2' to adjust frame skip")
-        print(f"   Skip frames: {skip_frames} (0=no skip, higher=faster)")
         
         cap = cv2.VideoCapture(0)
         if not cap.isOpened():
@@ -914,14 +916,7 @@ class TurboAuthenticationSystem:
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         
         start_time = time.time()
-        frame_count = 0
-        # Use parameter instead of hardcoded value
         verification_results = []
-        
-        # Cache for performance
-        last_detection_result = None
-        cache_valid_frames = 3  # Use cache for 3 frames
-        cache_frame_count = 0
         
         try:
             while True:
@@ -933,38 +928,22 @@ class TurboAuthenticationSystem:
                 ret, frame = cap.read()
                 if not ret:
                     continue
-                frame = cv2.flip(frame, 1)
-                frame_count += 1
+                
                 display_frame = frame.copy()
                 h, w = display_frame.shape[:2]
                 
-                # Frame skipping with cache optimization
-                should_process = (frame_count % (skip_frames + 1)) == 0
-                use_cache = False
-                
-                if not should_process and last_detection_result and cache_frame_count < cache_valid_frames:
-                    # Use cached result for performance
-                    results = last_detection_result
-                    use_cache = True
-                    cache_frame_count += 1
-                elif should_process:
-                    # Process new frame with DeepFace
-                    results = self.inference_system.process_frame(frame)
-                    last_detection_result = results
-                    cache_frame_count = 0
-                else:
-                    # Skip this frame completely
-                    results = None
+                # Process every frame for stable real-time performance
+                results = self.inference_system.process_frame(frame)
                 
                 if results and results.get('faces'):
                     faces = results['faces']
                     
-                    for face_idx, face_data in enumerate(faces):
+                    for face_data in faces:
                         if isinstance(face_data, dict) and 'facial_area' in face_data:
-                            # Get confidence scores
+                            # Get face detection data
+                            is_real = face_data.get('is_real', True)
                             face_confidence = face_data.get('confidence', 0.0)
                             antispoof_score = face_data.get('antispoof_score', 0.0)
-                            is_real = face_data.get('is_real', True)
                             
                             # Get bounding box
                             facial_area = face_data['facial_area']
@@ -973,92 +952,52 @@ class TurboAuthenticationSystem:
                             w_face = min(facial_area.get('w', 0), frame.shape[1] - x)
                             h_face = min(facial_area.get('h', 0), frame.shape[0] - y)
                             
-                            # Apply thresholds and check if real
-                            if (face_confidence >= self.face_threshold and 
-                                antispoof_score >= self.antispoof_threshold and 
-                                is_real and w_face > 50 and h_face > 50):
-                                
-                                # Face is real and above thresholds
-                                # Crop face for embedding
-                                face_crop = frame[y:y+h_face, x:x+w_face]
-                                
-                                # Extract embedding and verify with FAISS (only for new detections)
-                                if not use_cache:
-                                    embedding = self.inference_system.extract_embedding(face_crop)
-                                    if embedding is not None:
-                                        # Search in FAISS vector store like recognition.py
-                                        db_result = self.inference_system.search_user_by_embedding(embedding, threshold=0.6)
-                                        if db_result:
-                                            # Authenticated user found
-                                            verification_results.append({
-                                                'timestamp': time.time(),
-                                                'user_id': db_result.get('user_id', 'Unknown'),
-                                                'confidence': db_result.get('confidence', 0),
-                                                'face_confidence': face_confidence,
-                                                'antispoof_score': antispoof_score,
-                                                'bbox': (x, y, w_face, h_face),
-                                                'name': db_result.get('name', db_result.get('user_id', 'Unknown'))
-                                            })
-                                            
-                                            # Draw authenticated face
-                                            cv2.rectangle(display_frame, (x, y), (x + w_face, y + h_face), (0, 255, 0), 3)
-                                            cv2.putText(display_frame, f"✅ {db_result.get('name', db_result['user_id'])}", 
-                                                      (x, y - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-                                            cv2.putText(display_frame, f"FAISS: {db_result['confidence']:.3f}", 
-                                                      (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-                                            cv2.putText(display_frame, f"AS: {antispoof_score:.3f}", 
-                                                      (x, y + h_face + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-                                        else:
-                                            # Unknown person (real but not in database)
-                                            cv2.rectangle(display_frame, (x, y), (x + w_face, y + h_face), (0, 255, 255), 2)
-                                            cv2.putText(display_frame, "❓ Unknown Person", 
-                                                      (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-                                            cv2.putText(display_frame, f"Real: {antispoof_score:.3f}", 
-                                                      (x, y + h_face + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
-                                    else:
-                                        # Embedding extraction failed
-                                        cv2.rectangle(display_frame, (x, y), (x + w_face, y + h_face), (128, 128, 128), 2)
-                                        cv2.putText(display_frame, "⚠️ Embed Error", 
-                                                  (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (128, 128, 128), 2)
-                                else:
-                                    # Using cached result - draw previous detection
-                                    cv2.rectangle(display_frame, (x, y), (x + w_face, y + h_face), (255, 255, 0), 2)
-                                    cv2.putText(display_frame, "📋 Cached", 
-                                              (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+                            # Check if face is valid size
+                            if w_face < 50 or h_face < 50:
+                                continue
                             
-                            elif is_real and (face_confidence < self.face_threshold or antispoof_score < self.antispoof_threshold):
-                                # Real face but below confidence thresholds
-                                cv2.rectangle(display_frame, (x, y), (x + w_face, y + h_face), (100, 100, 100), 2)
-                                cv2.putText(display_frame, "⚡ Low Confidence", 
-                                          (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (100, 100, 100), 2)
-                                cv2.putText(display_frame, f"F:{face_confidence:.2f} A:{antispoof_score:.2f}", 
-                                          (x, y + h_face + 15), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (100, 100, 100), 1)
+                            if is_real and face_confidence >= self.face_threshold:
+                                # Real face - crop and check database
+                                face_crop = frame[y:y+h_face, x:x+w_face]
+                                embedding = self.inference_system.extract_embedding(face_crop)
+                                
+                                if embedding is not None:
+                                    db_result = self.inference_system.search_user_by_embedding(embedding, threshold=0.6)
+                                    if db_result:
+                                        # Authenticated user - GREEN bbox with name only
+                                        user_name = db_result.get('name', db_result['user_id'])
+                                        cv2.rectangle(display_frame, (x, y), (x + w_face, y + h_face), (0, 255, 0), 3)
+                                        cv2.putText(display_frame, user_name, 
+                                                  (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+                                        verification_results.append(db_result)
+                                    else:
+                                        # Real face but unknown - GREEN bbox with "UNKNOWN"
+                                        cv2.rectangle(display_frame, (x, y), (x + w_face, y + h_face), (0, 255, 0), 3)
+                                        cv2.putText(display_frame, "UNKNOWN", 
+                                                  (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+                                else:
+                                    # Real face but embedding failed - GREEN bbox with "PROCESSING"
+                                    cv2.rectangle(display_frame, (x, y), (x + w_face, y + h_face), (0, 255, 0), 2)
+                                    cv2.putText(display_frame, "PROCESSING", 
+                                              (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
                             
                             elif not is_real:
-                                # Fake/spoof detected
-                                cv2.rectangle(display_frame, (x, y), (x + w_face, y + h_face), (0, 0, 255), 2)
-                                cv2.putText(display_frame, "🚫 FAKE DETECTED", 
-                                          (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-                                cv2.putText(display_frame, f"Spoof: {antispoof_score:.3f}", 
-                                          (x, y + h_face + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+                                # Fake face - RED bbox with "FAKE" only
+                                cv2.rectangle(display_frame, (x, y), (x + w_face, y + h_face), (0, 0, 255), 3)
+                                cv2.putText(display_frame, "FAKE", 
+                                          (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
                 
                 # Update FPS
                 self.inference_system.update_fps()
                 
-                # Display real-time info
+                # Display minimal info
                 remaining = max(0, duration - elapsed)
                 cv2.putText(display_frame, f"Time: {remaining:.1f}s", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
                 cv2.putText(display_frame, f"FPS: {self.inference_system.current_fps:.1f}", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
                 cv2.putText(display_frame, f"Verified: {len(verification_results)}", (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                cv2.putText(display_frame, f"Skip: {skip_frames}", (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
-                
-                # Cache status
-                cache_status = "CACHE" if use_cache else "LIVE"
-                cache_color = (255, 255, 0) if use_cache else (0, 255, 255)
-                cv2.putText(display_frame, cache_status, (10, 150), cv2.FONT_HERSHEY_SIMPLEX, 0.6, cache_color, 2)
                 
                 # Controls
-                cv2.putText(display_frame, "q/ESC: Exit | 1/2: Skip±", (10, h - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                cv2.putText(display_frame, "q/ESC: Exit", (10, h - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
                 
                 cv2.imshow('Continuous Mode Authentication', display_frame)
                 
@@ -1066,14 +1005,6 @@ class TurboAuthenticationSystem:
                 if key == ord('q') or key == 27:  # q or ESC
                     print("\n👋 Exiting continuous mode...")
                     break
-                elif key == ord('1'):  # Decrease skip frames
-                    skip_frames = max(0, skip_frames - 1)
-                    print(f"Skip frames: {skip_frames}")
-                    last_detection_result = None  # Clear cache
-                elif key == ord('2'):  # Increase skip frames
-                    skip_frames = min(10, skip_frames + 1)
-                    print(f"Skip frames: {skip_frames}")
-                    last_detection_result = None  # Clear cache
             
             cv2.destroyAllWindows()
             
@@ -1083,7 +1014,7 @@ class TurboAuthenticationSystem:
                 print(f"   Total verifications: {len(verification_results)}")
                 user_counts = {}
                 for result in verification_results:
-                    user_id = result['user_id']
+                    user_id = result.get('user_id', 'Unknown')
                     if user_id not in user_counts:
                         user_counts[user_id] = {
                             'count': 0,
@@ -1091,10 +1022,10 @@ class TurboAuthenticationSystem:
                             'confidences': []
                         }
                     user_counts[user_id]['count'] += 1
-                    user_counts[user_id]['confidences'].append(result['confidence'])
+                    user_counts[user_id]['confidences'].append(result.get('confidence', 0))
                 
                 for user_id, data in user_counts.items():
-                    avg_conf = sum(data['confidences']) / len(data['confidences'])
+                    avg_conf = sum(data['confidences']) / len(data['confidences']) if data['confidences'] else 0
                     print(f"   {user_id}: {data['count']} times (avg conf: {avg_conf:.3f})")
             else:
                 print("\n📊 No verifications recorded")
@@ -1306,11 +1237,13 @@ class FacialAuthenticationSystem:
         self.timeout = timeout
         self.use_tensorrt = use_tensorrt
         self.precision = precision
+        self.verbose = False  # Add missing verbose attribute
         
         # Initialize TURBO system
         self.turbo_system = TurboAuthenticationSystem(
             face_threshold=threshold,
-            antispoof_threshold=0.6  # Default antispoof threshold
+            antispoof_threshold=0.6,  # Default antispoof threshold
+            verbose=self.verbose
         )
         
         # Compatibility attributes
