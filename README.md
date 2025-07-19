@@ -86,19 +86,6 @@ python main.py --mode authentication --auth-mode continuous --duration 60 --live
 - Provides real-time positioning feedback
 - Verifies identity with multiple consecutive matches
 
-#### 4. Fisheye Camera Support
-```bash
-# Use fisheye camera mode for any operation
-python main.py --mode recognition --camera-mode fisheye
-python main.py --mode registration --username <name> --camera-mode fisheye
-python main.py --mode authentication --camera-mode fisheye
-
-# Default flat camera mode
-python main.py --mode recognition --camera-mode flat
-```
-- Corrects fisheye/wide-angle camera distortion automatically
-- Improves face detection accuracy for distorted cameras
-- Real-time correction during operation
 
 #### Alternative CLI Interface
 ```bash
@@ -149,7 +136,6 @@ pip install nvidia-pyindex nvidia-tensorrt pycuda
 - `--skip-frames`: Frame skipping for performance (0=no skip, 2=default, higher=faster but less responsive)
 - `--liveness`: Enable liveness detection
 - `--matches`: Required consecutive matches for authentication
-- `--camera-mode`: Camera mode (flat, fisheye)
 - `--use-tensorrt`: Enable TensorRT acceleration
 - `--precision`: Precision mode for TensorRT models (fp16, fp32)
 - `--monitor`: Enable performance monitoring

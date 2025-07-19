@@ -16,9 +16,6 @@ from Project.utils.Detector import FaceDetector
 from Project.utils.face_utils import preprocess_face
 from Project.utils.vector_store import FaissStore
 
-# Import fisheye correction
-from Project.utils.FishEyeCalibrate import Defisheye
-from Project.utils.defisheye_config import get_defisheye_params
 
 try:
     from PyQt5.QtWidgets import QApplication, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton
@@ -134,21 +131,13 @@ class FaceRegistrationApp:
     """
     Application for registering new users with multi-angle face captures.
     """
-    def __init__(self, detector_model_path, embedding_model_path, database_path, username=None, use_tensorrt=True, precision='fp16',camera_mode ='flat'):
+    def __init__(self, detector_model_path, embedding_model_path, database_path, username=None, use_tensorrt=True, precision='fp16'):
         self.detector_model_path = detector_model_path
         self.embedding_model_path = embedding_model_path
         self.database_path = database_path
         self.username = username
         self.use_tensorrt = use_tensorrt
         self.precision = precision
-        self.camera_mode = camera_mode
-        # Initialize fisheye correction if needed
-        if camera_mode == 'fisheye':
-            self.fisheye_corrector = Defisheye(**get_defisheye_params())
-            print("Fisheye correction enabled for Registration")
-        else:
-            self.fisheye_corrector = None
-            print("Using flat camera mode (no fisheye correction)")
         # Initialize embedding model with TensorRT if available
         if use_tensorrt:
             try:
@@ -230,9 +219,6 @@ class FaceRegistrationApp:
             if not ret:
                 print("Error: Failed to capture frame.")
                 break
-            # Apply fisheye correction if enabled
-            if self.camera_mode == 'fisheye' and self.fisheye_corrector:
-                frame = self.fisheye_corrector.undistort(frame)
     
             # Process frame with head pose enrollment
             ui_frame = enrollment.process_frame(frame)
