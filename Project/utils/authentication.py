@@ -153,7 +153,7 @@ class OptimizedFaceInference:
         try:
             # Path to embedding model - FIXED: correct path structure
             models_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "Project", "models")
-            model_path = os.path.join(models_dir, "inception_resnet_v1.onnx")
+            model_path = os.path.join(models_dir, "inception_resnet_v1_fp16.onnx")
             
             if self.verbose:
                 print(f"🔍 Loading embedding model from: {model_path}")
@@ -366,7 +366,9 @@ class OptimizedFaceInference:
                 inp = preprocess_face(face_img)
                 print(f"✅ Preprocessed input shape: {inp.shape}")
                 
-                result = self.embedding_session.run(None, {'input': inp})
+                # Convert input to float16 for FP16 model
+                inp_fp16 = inp.astype(np.float16)
+                result = self.embedding_session.run(None, {'input': inp_fp16})
                 emb = result[0][0]  # EXACTLY like recognition.py
                 print(f"✅ ONNX embedding shape: {emb.shape}")
                 

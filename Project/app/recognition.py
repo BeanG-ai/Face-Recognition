@@ -21,9 +21,9 @@ class Recognizer:
         if use_tensorrt:
             try:
                 # Load optimized face recognition model
-                self.model = load_optimized_model('inception_resnet_v1', precision=precision)
+                self.model = load_optimized_model('inception_resnet_v1_fp16', precision=precision)
                 self.using_tensorrt = True
-                print(f"Using TensorRT optimized face embedding model with {precision} precision")
+                print(f"Using TensorRT optimized face embedding model (FP16) with {precision} precision")
             except Exception as e:
                 print(f"Failed to load TensorRT model: {e}")
                 print("Falling back to ONNX Runtime")
@@ -115,9 +115,9 @@ class FaceRecognitionApp:
         if use_tensorrt:
             try:
                 # Load optimized model
-                self.model = load_optimized_model('inception_resnet_v1', precision=precision)
+                self.model = load_optimized_model('inception_resnet_v1_fp16', precision=precision)
                 self.using_tensorrt = True
-                print(f"Using TensorRT optimized face embedding model with {precision} precision")
+                print(f"Using TensorRT optimized face embedding model (FP16) with {precision} precision")
                 
                 # For FAISS, we need embedding dimension - default is 512 for Inception ResNet v1
                 emb_dim = 512
@@ -152,7 +152,9 @@ class FaceRecognitionApp:
             if len(emb.shape) > 1:
                 emb = emb[0]
         else:
-            emb = self.session.run(None, {'input': inp})[0][0]
+            # Convert input to float16 for FP16 model
+            inp_fp16 = inp.astype(np.float16)
+            emb = self.session.run(None, {'input': inp_fp16})[0][0]
             
         return emb
         

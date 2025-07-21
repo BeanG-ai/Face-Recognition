@@ -44,6 +44,11 @@ MODELS = {
         'path': 'Project/models/inception_resnet_v1.onnx',
         'description': 'Inception ResNet v1 face embedding model',
         'input_shape': '1,3,160,160'
+    },
+    'inception_resnet_v1_fp16': {
+        'path': 'Project/models/inception_resnet_v1_fp16.onnx',
+        'description': 'Inception ResNet v1 face embedding model (FP16)',
+        'input_shape': '1,3,160,160'
     }
 }
 

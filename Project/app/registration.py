@@ -2,6 +2,7 @@ import os
 import cv2
 import numpy as np
 import time
+import shutil
 from Project.utils.database_utils import add_user, find_user_by_embedding
 from Project.utils.face_utils import save_face_image
 import sys
@@ -166,9 +167,9 @@ class FaceRegistrationApp:
         if use_tensorrt:
             try:
                 # Load optimized face recognition model
-                self.model = load_optimized_model('inception_resnet_v1', precision=precision)
+                self.model = load_optimized_model('inception_resnet_v1_fp16', precision=precision)
                 self.using_tensorrt = True
-                print(f"Using TensorRT optimized face embedding model with {precision} precision")
+                print(f"Using TensorRT optimized face embedding model (FP16) with {precision} precision")
                 
                 # For FAISS, we need embedding dimension - default is 512 for Inception ResNet v1
                 emb_dim = 512
@@ -206,7 +207,9 @@ class FaceRegistrationApp:
             if len(emb.shape) > 1:
                 emb = emb[0]
         else:
-            emb = self.session.run(None, {'input': inp})[0][0]
+            # Convert input to float16 for FP16 model
+            inp_fp16 = inp.astype(np.float16)
+            emb = self.session.run(None, {'input': inp_fp16})[0][0]
             
         return emb
         
@@ -261,72 +264,121 @@ class FaceRegistrationApp:
         enrollment.close()
         cv2.destroyAllWindows()
         
+        # Nếu người dùng thoát giữa chừng hoặc không hoàn thành đăng ký
+        if not enrollment.is_completed():
+            print("Da thoat chuong trinh. Cac anh da chup:", enrollment.captured_images)
+            
+            # Xóa ảnh đã chụp nếu có
+            if enrollment.captured_images:
+                user_dir = os.path.dirname(list(enrollment.captured_images.values())[0])
+                for img_path in enrollment.captured_images.values():
+                    try:
+                        if os.path.exists(img_path):
+                            os.remove(img_path)
+                    except OSError:
+                        pass
+                
+                # Xóa thư mục nếu rỗng
+                try:
+                    if os.path.isdir(user_dir) and not os.listdir(user_dir):
+                        os.rmdir(user_dir)
+                except OSError:
+                    pass
+                    
+                print("✅ Đã xóa dữ liệu tạm do thoát giữa chừng.")
+            return
+        
         if enrollment.is_completed():
-            print("Registration completed.")
+            print("🎉 Enrollment completed successfully!")
 
             image_paths = list(enrollment.captured_images.values())
             if not image_paths:
-                print("Error: No face images were captured!")
+                print("❌ Error: No face images were captured!")
                 return
+
+            # Lưu thư mục tạm để dễ dàng xóa nếu có lỗi
+            user_dir = os.path.dirname(image_paths[0])
+            
+            # Hàm tiện ích xóa ảnh và thư mục tạm
+            def cleanup_temp_images():
+                print("🧹 Cleaning up temporary images...")
+                for img_path in enrollment.captured_images.values():
+                    try:
+                        if os.path.exists(img_path):
+                            os.remove(img_path)
+                            print(f"  - Deleted: {os.path.basename(img_path)}")
+                    except OSError as e:
+                        print(f"  - Failed to delete {os.path.basename(img_path)}: {e}")
+                        
+                # Xóa thư mục nếu rỗng
+                try:
+                    if os.path.isdir(user_dir) and not os.listdir(user_dir):
+                        os.rmdir(user_dir)
+                        print(f"  - Removed empty directory: {os.path.basename(user_dir)}")
+                except OSError as e:
+                    print(f"  - Failed to remove directory {os.path.basename(user_dir)}: {e}")
 
             # 1) Tạo danh sách embeddings
             all_embeddings = []
             for img_path in enrollment.captured_images.values():
                 img = cv2.imread(img_path)
                 if img is not None:
-                    emb = self.extract_embedding(img)
-                    all_embeddings.append(emb)
-
+                    try:
+                        emb = self.extract_embedding(img)
+                        all_embeddings.append(emb)
+                    except Exception as e:
+                        print(f"❌ Error extracting embedding: {e}")
+            
             if not all_embeddings:
-                print("Error: Failed to generate embeddings.")
+                print("❌ Error: Failed to generate embeddings.")
+                cleanup_temp_images()
                 return
 
             avg_embedding = np.mean(all_embeddings, axis=0)
-            # first_image = cv2.imread(list(enrollment.captured_images.values())[0])
             
             first_image = cv2.imread(image_paths[0])
             if first_image is None:
-                print("Error: Failed to read the first image.")
+                print("❌ Error: Failed to read the first image.")
+                cleanup_temp_images()
                 return
 
             # 2) Kiểm tra xem user đã tồn tại chưa
             existing_uid, score = self.registrar.match(avg_embedding)
             if existing_uid is not None:
-                print(f"User đã tồn tại (UID={existing_uid}, similarity={score:.4f}), không thêm mới.")
-
+                print(f"⚠️ User đã tồn tại (UID={existing_uid}, similarity={score:.4f}), không thêm mới.")
                 
-                # 3) Xóa toàn bộ ảnh đã capture (tránh sao chép)
-                for img_path in enrollment.captured_images.values():
-                    try:
-                        os.remove(img_path)
-                    except OSError:
-                        pass
-                # (tuỳ chọn) xóa cả thư mục nếu rỗng:
-                user_dir = os.path.dirname(list(enrollment.captured_images.values())[0])
-                if os.path.isdir(user_dir) and not os.listdir(user_dir):
-                    os.rmdir(user_dir)
-
-                print("Đã xóa các ảnh tạm do user đã tồn tại.")
+                # Xóa ảnh tạm khi user đã tồn tại
+                cleanup_temp_images()
+                print("✅ Đã xóa các ảnh tạm do user đã tồn tại.")
                 return
 
-            # 4) Nếu chưa có, đăng ký mới như trước
-            new_user_id, real_name = self.registrar.register_new(first_image, avg_embedding)
-            if new_user_id:
-                # Xử lý tên thư mục không dấu, không chứa ký tự đặc biệt
-                folder_name = real_name.strip().replace(" ", "_")
-                real_user_dir = os.path.join(self.database_path, "images",folder_name )   #str(new_user_id)
-                os.rename(user_dir, real_user_dir)
-                print(f"✅ User '{real_name}' đã được đăng ký với folder ảnh: {folder_name}")
-            else:
-    # Cleanup nếu đăng ký thất bại hoặc thông tin không hợp lệ
-                for img_path in image_paths:
+            # 4) Nếu chưa có, đăng ký mới
+            try:
+                new_user_id, real_name = self.registrar.register_new(first_image, avg_embedding)
+                if new_user_id and real_name:
+                    # Xử lý tên thư mục không dấu, không chứa ký tự đặc biệt
+                    folder_name = real_name.strip().replace(" ", "_")
+                    real_user_dir = os.path.join(self.database_path, "images", folder_name)
+                    
+                    # Đảm bảo thư mục đích không tồn tại trước khi đổi tên
+                    if os.path.exists(real_user_dir):
+                        print(f"⚠️ Thư mục đích {folder_name} đã tồn tại, tạo tên duy nhất...")
+                        folder_name = f"{folder_name}_{str(int(time.time()))}"
+                        real_user_dir = os.path.join(self.database_path, "images", folder_name)
+                    
                     try:
-                        os.remove(img_path)
-                    except OSError:
-                        pass
-                if os.path.isdir(user_dir) and not os.listdir(user_dir):
-                    os.rmdir(user_dir)
-                print("Thông tin không hợp lệ. Đã xóa toàn bộ dữ liệu tạm thời.")
-                return
+                        os.rename(user_dir, real_user_dir)
+                        print(f"✅ User '{real_name}' đã được đăng ký với folder ảnh: {folder_name}")
+                        print(f"📸 Đã lưu {len(enrollment.captured_images)} ảnh vào thư mục: {folder_name}")
+                    except OSError as e:
+                        print(f"❌ Lỗi khi đổi tên thư mục: {e}")
+                        # Không xóa ảnh vì chúng vẫn hợp lệ, chỉ có lỗi đổi tên
+                else:
+                    print("❌ Không nhận được thông tin người dùng hợp lệ.")
+                    cleanup_temp_images()
+            except Exception as e:
+                print(f"❌ Lỗi khi đăng ký người dùng: {e}")
+                cleanup_temp_images()
+                print("✅ Đã xóa toàn bộ dữ liệu tạm thời do lỗi đăng ký.")
            
 

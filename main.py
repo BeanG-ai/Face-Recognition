@@ -469,7 +469,7 @@ def main():
     # Define paths
     base_dir = os.path.dirname(os.path.abspath(__file__))
     detector_model_path = os.path.join(base_dir, "Project", "models", "blaze_face_short_range.tflite")
-    embedding_model_path = os.path.join(base_dir, "Project", "models", "inception_resnet_v1.onnx")
+    embedding_model_path = os.path.join(base_dir, "Project", "models", "inception_resnet_v1_fp16.onnx")
     db_path = os.path.join(base_dir, "Project", "database")
     
     # Check if model files exist
