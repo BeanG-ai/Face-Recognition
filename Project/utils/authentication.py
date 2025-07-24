@@ -845,6 +845,47 @@ class TurboAuthenticationSystem:
                         else:
                             display_frame = captured_frame.copy()
                         
+                        # Always ensure bbox is drawn for facial_area (override processed_frame bbox if needed)
+                        if verification_result.get('facial_area'):
+                            facial_area = verification_result['facial_area']
+                            x = facial_area.get('x', 0)
+                            y = facial_area.get('y', 0)
+                            w_face = facial_area.get('w', 0)
+                            h_face = facial_area.get('h', 0)
+                            
+                            # Validate and clamp bbox coordinates to prevent fullscreen bbox
+                            frame_h, frame_w = display_frame.shape[:2]
+                            x = max(0, min(x, frame_w - 1))
+                            y = max(0, min(y, frame_h - 1))
+                            w_face = max(1, min(w_face, frame_w - x))
+                            h_face = max(1, min(h_face, frame_h - y))
+                            
+                            # Only draw bbox if coordinates are reasonable (not too large)
+                            if w_face < frame_w * 0.8 and h_face < frame_h * 0.8 and w_face > 20 and h_face > 20:
+                                # Draw bbox based on verification result - ALWAYS draw for both success and failure
+                                if verification_result['success']:
+                                    cv2.rectangle(display_frame, (x, y), (x + w_face, y + h_face), (0, 255, 0), 3)
+                                    cv2.putText(display_frame, "AUTHENTICATED", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+                                else:
+                                    cv2.rectangle(display_frame, (x, y), (x + w_face, y + h_face), (0, 0, 255), 3)
+                                    cv2.putText(display_frame, "FAILED", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+                            else:
+                                # Log invalid bbox for debugging
+                                print(f"⚠️ Invalid bbox detected: x={x}, y={y}, w={w_face}, h={h_face}, frame_size={frame_w}x{frame_h}")
+                                # Draw a default small bbox at center as fallback
+                                center_x, center_y = frame_w // 2, frame_h // 2
+                                default_size = 100
+                                if verification_result['success']:
+                                    cv2.rectangle(display_frame, (center_x - default_size//2, center_y - default_size//2), 
+                                                (center_x + default_size//2, center_y + default_size//2), (0, 255, 0), 3)
+                                    cv2.putText(display_frame, "AUTHENTICATED (Invalid bbox)", (center_x - 100, center_y - default_size//2 - 10), 
+                                              cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                                else:
+                                    cv2.rectangle(display_frame, (center_x - default_size//2, center_y - default_size//2), 
+                                                (center_x + default_size//2, center_y + default_size//2), (0, 0, 255), 3)
+                                    cv2.putText(display_frame, "FAILED (Invalid bbox)", (center_x - 100, center_y - default_size//2 - 10), 
+                                              cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+                        
                         h, w = display_frame.shape[:2]
                         
                         if verification_result['success']:
@@ -1068,6 +1109,7 @@ class TurboAuthenticationSystem:
     def _verify_frame_with_deepface(self, frame):
         """
         Verify frame using DeepFace detection + anti-spoofing + ONNX/TensorRT embedding + FAISS
+        Only process face that is in the center guide box area
         Returns: (verification_result, processed_frame)
         """
         try:
@@ -1081,10 +1123,22 @@ class TurboAuthenticationSystem:
             
             faces = results['faces']
             
-            # Find best face (highest confidence real face)
+            # Define center guide box area (same as in capture phase)
+            frame_h, frame_w = frame.shape[:2]
+            center_x, center_y = frame_w // 2, frame_h // 2
+            box_size = min(frame_w, frame_h) // 3
+            guide_box = {
+                'x_min': center_x - box_size // 2,
+                'x_max': center_x + box_size // 2,
+                'y_min': center_y - box_size // 2,
+                'y_max': center_y + box_size // 2
+            }
+            
+            # Find best face ONLY within the guide box area
             best_face = None
             best_score = 0
             all_faces_info = []  # Store info about all detected faces for detailed reporting
+            faces_in_box = []    # Store faces that are in the guide box
             
             for face_data in faces:
                 if isinstance(face_data, dict) and 'facial_area' in face_data:
@@ -1092,63 +1146,127 @@ class TurboAuthenticationSystem:
                     antispoof_score = face_data.get('antispoof_score', 0.0)
                     is_real = face_data.get('is_real', True)
                     
+                    # Check if face center is within guide box
+                    facial_area = face_data['facial_area']
+                    face_x = facial_area.get('x', 0)
+                    face_y = facial_area.get('y', 0)
+                    face_w = facial_area.get('w', 0)
+                    face_h = facial_area.get('h', 0)
+                    face_center_x = face_x + face_w // 2
+                    face_center_y = face_y + face_h // 2
+                    
                     # Store face info for detailed reporting
-                    all_faces_info.append({
+                    face_info = {
                         'face_confidence': face_confidence,
                         'antispoof_score': antispoof_score,
                         'is_real': is_real,
-                        'face_data': face_data
-                    })
+                        'face_data': face_data,
+                        'in_guide_box': False
+                    }
                     
-                    if (is_real and 
-                        face_confidence >= self.face_threshold and 
-                        antispoof_score >= self.antispoof_threshold):
-                        
-                        combined_score = (face_confidence + antispoof_score) / 2
-                        if combined_score > best_score:
-                            best_score = combined_score
-                            best_face = face_data
+                    # Check if face is within guide box
+                    if (guide_box['x_min'] <= face_center_x <= guide_box['x_max'] and
+                        guide_box['y_min'] <= face_center_y <= guide_box['y_max']):
+                        face_info['in_guide_box'] = True
+                        faces_in_box.append(face_info)
+                        print(f"✅ Face in guide box: center=({face_center_x}, {face_center_y}), confidence={face_confidence:.3f}, real={is_real}")
+                    else:
+                        print(f"❌ Face outside guide box: center=({face_center_x}, {face_center_y}), bbox={guide_box}")
+                    
+                    all_faces_info.append(face_info)
+            
+            # Only consider faces within the guide box
+            if not faces_in_box:
+                return {
+                    'success': False, 
+                    'reason': f'No face detected in center guide area (found {len(all_faces_info)} faces outside)'
+                }, None
+            
+            # Find best face among faces in guide box
+            for face_info in faces_in_box:
+                face_data = face_info['face_data']
+                face_confidence = face_info['face_confidence']
+                antispoof_score = face_info['antispoof_score']
+                is_real = face_info['is_real']
+                
+                if (is_real and 
+                    face_confidence >= self.face_threshold and 
+                    antispoof_score >= self.antispoof_threshold):
+                    
+                    combined_score = (face_confidence + antispoof_score) / 2
+                    if combined_score > best_score:
+                        best_score = combined_score
+                        best_face = face_data
             
             if not best_face:
-                # Provide detailed failure reason based on face analysis
-                if not all_faces_info:
-                    return {'success': False, 'reason': 'No faces detected by DeepFace'}, None
+                # Provide detailed failure reason based on face analysis (only guide box faces)
+                if not faces_in_box:
+                    return {'success': False, 'reason': 'No faces in center guide area'}, None
                 
-                # Analyze why no face was valid
-                fake_faces = [f for f in all_faces_info if not f['is_real']]
-                low_face_conf = [f for f in all_faces_info if f['face_confidence'] < self.face_threshold]
-                low_antispoof = [f for f in all_faces_info if f['antispoof_score'] < self.antispoof_threshold]
+                # Analyze why no face was valid (only faces in guide box)
+                fake_faces = [f for f in faces_in_box if not f['is_real']]
+                low_face_conf = [f for f in faces_in_box if f['face_confidence'] < self.face_threshold]
+                low_antispoof = [f for f in faces_in_box if f['antispoof_score'] < self.antispoof_threshold]
                 
-                # Get the best available face for detailed reporting
-                best_available = max(all_faces_info, key=lambda x: x['face_confidence'])
+                # Get the best available face in guide box for detailed reporting
+                best_available = max(faces_in_box, key=lambda x: x['face_confidence'])
+                
+                # Extract facial_area from best available face for bbox drawing
+                best_face_data = best_available['face_data']
+                facial_area = best_face_data['facial_area']
+                
+                # Validate facial_area coordinates to prevent invalid bbox
+                x = max(0, min(facial_area.get('x', 0), frame_w - 1))
+                y = max(0, min(facial_area.get('y', 0), frame_h - 1))
+                w = max(1, min(facial_area.get('w', 0), frame_w - x))
+                h = max(1, min(facial_area.get('h', 0), frame_h - y))
+                
+                facial_area_dict = {'x': x, 'y': y, 'w': w, 'h': h}
                 
                 failure_details = {
                     'success': False,
                     'face_confidence': best_available['face_confidence'],
                     'antispoof_score': best_available['antispoof_score'],
-                    'is_real': best_available['is_real']
+                    'is_real': best_available['is_real'],
+                    'facial_area': facial_area_dict  # Add facial_area for bbox drawing
                 }
                 
-                if fake_faces and len(fake_faces) == len(all_faces_info):
-                    failure_details['reason'] = f'All faces detected as FAKE (anti-spoof failed)'
+                if fake_faces and len(fake_faces) == len(faces_in_box):
+                    failure_details['reason'] = f'Face in guide box detected as FAKE (anti-spoof failed)'
                 elif low_antispoof:
                     failure_details['reason'] = f'Anti-spoofing score too low: {best_available["antispoof_score"]:.3f} < {self.antispoof_threshold}'
                 elif low_face_conf:
                     failure_details['reason'] = f'Face confidence too low: {best_available["face_confidence"]:.3f} < {self.face_threshold}'
                 else:
-                    failure_details['reason'] = f'Face validation failed - Combined criteria not met'
+                    failure_details['reason'] = f'Face in guide box validation failed - Combined criteria not met'
                 
                 return failure_details, None
             
             # Create processed frame showing detection results
             processed_frame = frame.copy()
             
-            # Crop face
+            # Draw guide box for reference
+            cv2.rectangle(processed_frame, 
+                        (guide_box['x_min'], guide_box['y_min']),
+                        (guide_box['x_max'], guide_box['y_max']),
+                        (255, 255, 0), 2)  # Yellow guide box
+            cv2.putText(processed_frame, "GUIDE BOX", 
+                      (guide_box['x_min'], guide_box['y_min'] - 10), 
+                      cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+            
+            # Process the selected face (guaranteed to be in guide box)
             facial_area = best_face['facial_area']
             x = facial_area.get('x', 0)
             y = facial_area.get('y', 0)
             w = facial_area.get('w', 0)
             h = facial_area.get('h', 0)
+            
+            # Store facial_area dict for return values with validation
+            x_validated = max(0, min(x, frame_w - 1))
+            y_validated = max(0, min(y, frame_h - 1))
+            w_validated = max(1, min(w, frame_w - x_validated))
+            h_validated = max(1, min(h, frame_h - y_validated))
+            facial_area_dict = {'x': x_validated, 'y': y_validated, 'w': w_validated, 'h': h_validated}
             
             # Ensure valid crop
             x = max(0, x)
@@ -1159,14 +1277,15 @@ class TurboAuthenticationSystem:
             if w < 50 or h < 50:
                 return {
                     'success': False, 
-                    'reason': f'Face too small: {w}x{h} pixels (minimum: 50x50)',
+                    'reason': f'Face in guide box too small: {w}x{h} pixels (minimum: 50x50)',
                     'face_confidence': best_face.get('confidence', 0),
-                    'antispoof_score': best_face.get('antispoof_score', 0)
+                    'antispoof_score': best_face.get('antispoof_score', 0),
+                    'facial_area': facial_area_dict  # Use the stored facial_area_dict
                 }, None
             
             # Draw detection on processed frame
             cv2.rectangle(processed_frame, (x, y), (x + w, y + h), (0, 255, 0), 3)
-            cv2.putText(processed_frame, "DETECTED FACE", (x, y + h + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+            cv2.putText(processed_frame, "FACE IN GUIDE BOX", (x, y + h + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
             cv2.putText(processed_frame, f"Real: {best_face.get('antispoof_score', 0):.3f}", (x, y + h + 45), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
             
             face_crop = frame[y:y+h, x:x+w]
@@ -1182,7 +1301,8 @@ class TurboAuthenticationSystem:
                     'success': False, 
                     'reason': 'Embedding extraction failed (model error)',
                     'face_confidence': best_face.get('confidence', 0),
-                    'antispoof_score': best_face.get('antispoof_score', 0)
+                    'antispoof_score': best_face.get('antispoof_score', 0),
+                    'facial_area': facial_area_dict  # Use the stored facial_area_dict
                 }, processed_frame
             
             # Verify with FAISS vector store
@@ -1201,7 +1321,8 @@ class TurboAuthenticationSystem:
                     'confidence': db_result.get('confidence', 0),
                     'face_confidence': best_face.get('confidence', 0),
                     'antispoof_score': best_face.get('antispoof_score', 0),
-                    'name': db_result.get('name', db_result.get('user_id', 'Unknown'))
+                    'name': db_result.get('name', db_result.get('user_id', 'Unknown')),
+                    'facial_area': facial_area_dict  # Use the stored facial_area_dict
                 }, processed_frame
             else:
                 # Mark as unknown on processed frame
@@ -1218,7 +1339,8 @@ class TurboAuthenticationSystem:
                     'reason': f'User not in database (closest match: {closest_score:.3f}, required: 0.6)',
                     'face_confidence': best_face.get('confidence', 0),
                     'antispoof_score': best_face.get('antispoof_score', 0),
-                    'confidence': closest_score  # Show the closest match score
+                    'confidence': closest_score,  # Show the closest match score
+                    'facial_area': facial_area_dict  # Use the stored facial_area_dict
                 }, processed_frame
                 
         except Exception as e:
