@@ -25,6 +25,9 @@ from datetime import datetime
 # Add the current directory to the Python path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
+# Import camera configuration for platform-specific settings
+from Project.utils.camera_config import print_camera_info, is_jetson_platform
+
 # Import application modules
 from Project.app.registration import FaceRegistrationApp
 from Project.app.recognition import FaceRecognitionApp
@@ -465,6 +468,10 @@ def run_authentication(args, detector_model_path, embedding_model_path, monitor=
 def main():
     """Main application entry point with command-line argument handling."""
     args = parse_args()
+    
+    # Print camera configuration info
+    print("\n🎥 Camera Configuration:")
+    print_camera_info()
     
     # Define paths
     base_dir = os.path.dirname(os.path.abspath(__file__))

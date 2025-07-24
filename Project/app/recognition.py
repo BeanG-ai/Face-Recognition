@@ -9,6 +9,7 @@ from Project.utils.database_utils import find_user_by_embedding
 from Project.utils.database_utils import get_user_info  # UPDATED: use database_utils for metadata lookup
 from Project.utils.vector_store import FaissStore  # ADDED: import FAISS vector store
 from Project.utils.Detector import FaceDetector
+from Project.utils.camera_config import get_working_camera_device  # ADDED: import camera config
 
 
 # Import the TensorRT utilities
@@ -167,10 +168,11 @@ class FaceRecognitionApp:
                                 use_tensorrt=self.use_tensorrt,
                                 precision=self.precision)
         
-        # Open webcam
-        cap = cv2.VideoCapture(0)
+        # Open webcam with appropriate device for platform
+        camera_device = get_working_camera_device()
+        cap = cv2.VideoCapture(camera_device)
         if not cap.isOpened():
-            print("Error: Could not open webcam.")
+            print(f"Error: Could not open webcam device: {camera_device}")
             return
         
         print("Face Recognition started. Press 'q' to quit.")

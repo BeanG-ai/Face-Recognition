@@ -37,10 +37,10 @@ A comprehensive facial recognition and authentication system optimized for NVIDI
    cd face-recognition
    ```
 
-2. Setup the project (includes DeepFace configuration):
-   - On Jetson: `./jetson_setup.sh`
-   - On Windows: `.\setup.ps1`
-   - On Linux: `bash setup.sh`
+2. Setup the project (includes DeepFace and camera configuration):
+   - On Jetson: `./jetson_setup.sh` (sets camera to `/dev/video0`)
+   - On Windows: `.\setup.ps1` (sets camera to device index 0)
+   - On Linux: `bash setup.sh` (sets camera to device index 0)
    - Manual setup: `pip install -r requirements.txt && python setup_project.py`
 
    **Note**: The setup process will automatically:
@@ -48,6 +48,7 @@ A comprehensive facial recognition and authentication system optimized for NVIDI
    - Configure DeepFace models in the project directory
    - Download necessary anti-spoofing models
    - Set up the complete project structure
+   - Configure camera device for the specific platform
 
 3. Optimize models with TensorRT (optional, recommended for performance):
    - On Windows: `.\optimize_models.ps1`
@@ -167,6 +168,20 @@ For detailed reporting during authentication:
 ```bash
 python main.py --mode authentication --auth-mode continuous --monitor --report
 ```
+
+## Camera Configuration
+
+The system automatically detects the platform and configures the camera device appropriately:
+
+- **Jetson platforms**: Uses `/dev/video0` (automatic detection)
+- **Other platforms**: Uses device index `0` (Windows, Linux, macOS)
+
+To test camera configuration:
+```bash
+python test_camera_config.py --interactive
+```
+
+For detailed camera configuration information, see [CAMERA_CONFIG.md](CAMERA_CONFIG.md).
 
 ## System Architecture
 

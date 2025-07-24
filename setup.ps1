@@ -2,6 +2,10 @@
 
 Write-Host "Setting up Face Recognition project..." -ForegroundColor Green
 
+# Ensure JETSON_DEVICE is not set for Windows setup
+$env:JETSON_DEVICE = $null
+Write-Host "Windows setup - Camera will use device index 0" -ForegroundColor Cyan
+
 # Install dependencies
 Write-Host "Installing required packages..." -ForegroundColor Cyan
 pip install --upgrade pip

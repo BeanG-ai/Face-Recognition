@@ -8,6 +8,7 @@ from Project.utils.face_utils import save_face_image
 import sys
 import onnxruntime as ort
 import uuid
+from Project.utils.camera_config import get_working_camera_device  # ADDED: import camera config
 
 # Import TensorRT utilities
 from Project.utils.tensorrt_utils import load_optimized_model
@@ -234,10 +235,11 @@ class FaceRegistrationApp:
         # Initialize head pose enrollment
         enrollment = HeadPoseEnrollment(save_path=user_dir)
         
-        # Open webcam
-        cap = cv2.VideoCapture(0)
+        # Open webcam with appropriate device for platform
+        camera_device = get_working_camera_device()
+        cap = cv2.VideoCapture(camera_device)
         if not cap.isOpened():
-            print("Error: Could not open webcam.")
+            print(f"Error: Could not open webcam device: {camera_device}")
             return
         
         print("Face Registration started. Follow the on-screen instructions.")

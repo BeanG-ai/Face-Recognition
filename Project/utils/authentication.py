@@ -6,6 +6,9 @@ import tempfile
 import uuid
 import platform
 
+# Import camera configuration
+from Project.utils.camera_config import get_camera_device, get_working_camera_device, print_camera_info
+
 # Fix OpenMP conflict issue
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
 
@@ -722,9 +725,11 @@ class TurboAuthenticationSystem:
         print("   Auto-capture when face is in position")
         print("   ESC to exit anytime")
         
-        cap = cv2.VideoCapture(0)
+        # Get appropriate camera device for platform
+        camera_device = get_working_camera_device()
+        cap = cv2.VideoCapture(camera_device)
         if not cap.isOpened():
-            print("❌ Cannot open camera")
+            print(f"❌ Cannot open camera device: {camera_device}")
             return None
         
         # Set camera properties
@@ -971,9 +976,11 @@ class TurboAuthenticationSystem:
         print(f"   Running for {duration} seconds")
         print("   Press 'q' or ESC to exit")
         
-        cap = cv2.VideoCapture(0)
+        # Get appropriate camera device for platform
+        camera_device = get_working_camera_device()
+        cap = cv2.VideoCapture(camera_device)
         if not cap.isOpened():
-            print("❌ Cannot open camera")
+            print(f"❌ Cannot open camera device: {camera_device}")
             return None
         
         # Set camera properties
@@ -1285,8 +1292,7 @@ class TurboAuthenticationSystem:
             
             # Draw detection on processed frame
             cv2.rectangle(processed_frame, (x, y), (x + w, y + h), (0, 255, 0), 3)
-            cv2.putText(processed_frame, "FACE IN GUIDE BOX", (x, y + h + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-            cv2.putText(processed_frame, f"Real: {best_face.get('antispoof_score', 0):.3f}", (x, y + h + 45), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+            # Remove text overlay on bbox - info is shown in top-left corner
             
             face_crop = frame[y:y+h, x:x+w]
             
@@ -1295,7 +1301,7 @@ class TurboAuthenticationSystem:
             if embedding is None:
                 # Mark as extraction failed on processed frame
                 cv2.rectangle(processed_frame, (x, y), (x + w, y + h), (0, 0, 255), 3)
-                cv2.putText(processed_frame, "EMBEDDING FAILED", (x, y + h + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+                # Remove text overlay - error info shown in top-left corner
                 
                 return {
                     'success': False, 
@@ -1310,10 +1316,7 @@ class TurboAuthenticationSystem:
             if db_result:
                 # Mark as authenticated on processed frame
                 cv2.rectangle(processed_frame, (x, y), (x + w, y + h), (0, 255, 0), 3)
-                cv2.putText(processed_frame, f"AUTHENTICATED: {db_result.get('name', db_result.get('user_id', 'Unknown'))}", 
-                          (x, y - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-                cv2.putText(processed_frame, f"FAISS Score: {db_result.get('confidence', 0):.3f}", 
-                          (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                # Remove text overlay - success info shown in top-left corner
                 
                 return {
                     'success': True,
@@ -1327,8 +1330,7 @@ class TurboAuthenticationSystem:
             else:
                 # Mark as unknown on processed frame
                 cv2.rectangle(processed_frame, (x, y), (x + w, y + h), (0, 255, 255), 3)
-                cv2.putText(processed_frame, "UNKNOWN PERSON", (x, y - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
-                cv2.putText(processed_frame, "Not in FAISS database", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+                # Remove text overlay - unknown info shown in top-left corner
                 
                 # Try to get the closest match for debugging
                 closest_result = self.inference_system.search_user_by_embedding(embedding, threshold=0.1)  # Very low threshold

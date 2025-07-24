@@ -120,6 +120,11 @@ if [ "$IS_JETSON" = true ]; then
         print_info "Model: $JETSON_MODEL"
     fi
     
+    # Set Jetson environment variable for camera configuration
+    export JETSON_DEVICE=true
+    echo "export JETSON_DEVICE=true" >> ~/.bashrc
+    print_info "Set JETSON_DEVICE environment variable for camera configuration"
+    
     # Check for specific Orin features
     if echo "$JETSON_MODEL" | grep -iq "orin" || [ -d "/sys/devices/platform/17000000.ga10b" ]; then
         print_info "Jetson Orin specific optimizations will be applied"
@@ -137,6 +142,10 @@ else
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         IS_JETSON=true
         JETSON_ORIN=true
+        # Set Jetson environment variable for camera configuration
+        export JETSON_DEVICE=true
+        echo "export JETSON_DEVICE=true" >> ~/.bashrc
+        print_info "Set JETSON_DEVICE environment variable for camera configuration"
         print_success "✅ Jetson mode enabled by user confirmation"
         print_info "Assuming Jetson Orin based on your GPU information"
     else

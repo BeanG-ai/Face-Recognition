@@ -6,6 +6,7 @@ import math
 from collections import deque
 import os
 from datetime import datetime
+from Project.utils.camera_config import get_working_camera_device  # ADDED: import camera config
 
 class HeadPoseEnrollment:
     def __init__(self, save_path='data/known_faces/new_person', yaw_threshold=10.0, pitch_threshold=10.0):
@@ -232,7 +233,8 @@ class HeadPoseEnrollment:
         
         # Initialize camera for standalone mode
         if self.cap is None:
-            self.cap = cv2.VideoCapture(0)
+            camera_device = get_working_camera_device()
+            self.cap = cv2.VideoCapture(camera_device)
             self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
             self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
             self.cap.set(cv2.CAP_PROP_FPS, 30)

@@ -11,6 +11,10 @@ echo "================================================"
 echo "Face Recognition System - Linux Setup"
 echo "================================================"
 
+# Ensure JETSON_DEVICE is not set for standard Linux setup
+unset JETSON_DEVICE
+print_info "Standard Linux setup - Camera will use device index 0"
+
 # Task tracking variables
 TOTAL_TASKS=10
 COMPLETED_TASKS=0
