@@ -11,13 +11,31 @@ class FaissStore:
 
         # Nếu đã có index lưu sẵn, load; nếu chưa, tạo mới
         if os.path.exists(index_path):
-            self.index = faiss.read_index(index_path)
-            with open(meta_path, 'r') as f:
-                self.metadata = json.load(f)
+            try:
+                self.index = faiss.read_index(index_path)
+                # Kiểm tra file meta có tồn tại và có nội dung không
+                if os.path.exists(meta_path) and os.path.getsize(meta_path) > 0:
+                    try:
+                        with open(meta_path, 'r') as f:
+                            self.metadata = json.load(f)
+                    except (json.JSONDecodeError, UnicodeDecodeError):
+                        print("Warning: faiss_meta.json bị hỏng hoặc rỗng. Tạo mới.")
+                        self.metadata = {}  # Tạo metadata mới
+                        self._save()  # Lưu lại ngay lập tức
+                else:
+                    print("Warning: faiss_meta.json rỗng hoặc không tồn tại. Tạo mới.")
+                    self.metadata = {}
+                    self._save()
+            except Exception as e:
+                print(f"Lỗi đọc index: {e}. Tạo index mới.")
+                self.index = faiss.IndexFlatIP(dim)
+                self.metadata = {}
+                self._save()
         else:
             # IndexFlatL2 cho cosine/L2 (với normalize embedding trước)
             self.index = faiss.IndexFlatIP(dim)  # Inner Product cho cosine nếu bạn normalize embeddings
             self.metadata = {}  # id → user_id
+            self._save()
 
     def add(self, user_id: str, embedding: np.ndarray):
         """

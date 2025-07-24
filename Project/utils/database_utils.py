@@ -18,14 +18,26 @@ if not os.path.exists(USERS_JSON):
 
 
 def load_database():
-    with open(USERS_JSON, 'r', encoding='utf-8') as f:
-        return json.load(f)
+    # Kiểm tra nếu file không tồn tại hoặc rỗng
+    if not os.path.exists(USERS_JSON) or os.path.getsize(USERS_JSON) == 0:
+        print("Warning: user_db.json không tồn tại hoặc rỗng. Tạo file mới.")
+        save_database([])  # Tạo file JSON với mảng rỗng
+        return []
+    
+    # Đọc file và xử lý lỗi JSON
+    try:
+        with open(USERS_JSON, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        print("Warning: user_db.json bị hỏng. Tạo lại file.")
+        save_database([])
+        return []
 def save_database(db):
     with open(USERS_JSON, 'w', encoding='utf-8') as f:
         json.dump(db, f, ensure_ascii=False, indent=2)
 
 
-def add_user(name, age, major, course, gmail, phone, embedding):
+def add_user(name, age, major, course, email, phone, embedding):
     """
     Thêm user mới, lưu embedding và metadata
     """
@@ -43,7 +55,7 @@ def add_user(name, age, major, course, gmail, phone, embedding):
         'age': age,
         'major': major,
         'course': course,
-        'gmail': gmail,
+        'email': email,
         'phone': phone,
         'image': os.path.relpath(os.path.join(IMAGES_DIR, f'user_{user_id}.jpg'), BASE_DIR),
         'embedding': os.path.relpath(emb_path, BASE_DIR)
