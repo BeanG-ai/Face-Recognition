@@ -867,13 +867,23 @@ class TurboAuthenticationSystem:
                             
                             # Only draw bbox if coordinates are reasonable (not too large)
                             if w_face < frame_w * 0.8 and h_face < frame_h * 0.8 and w_face > 20 and h_face > 20:
-                                # Draw bbox based on verification result - ALWAYS draw for both success and failure
+                                # Draw bbox based on verification result - Simple display like continuous mode
                                 if verification_result['success']:
+                                    user_name = verification_result.get('name', verification_result['user_id'])
                                     cv2.rectangle(display_frame, (x, y), (x + w_face, y + h_face), (0, 255, 0), 3)
-                                    cv2.putText(display_frame, "AUTHENTICATED", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+                                    cv2.putText(display_frame, user_name, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
                                 else:
-                                    cv2.rectangle(display_frame, (x, y), (x + w_face, y + h_face), (0, 0, 255), 3)
-                                    cv2.putText(display_frame, "FAILED", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+                                    # Determine failure type and show simple label
+                                    reason = verification_result.get('reason', 'Unknown')
+                                    if 'FAKE' in reason.upper() or 'anti-spoof' in reason.lower():
+                                        label = "FAKE"
+                                        color = (0, 0, 255)  # Red
+                                    else:
+                                        label = "UNKNOWN"
+                                        color = (0, 255, 255)  # Yellow
+                                    
+                                    cv2.rectangle(display_frame, (x, y), (x + w_face, y + h_face), color, 3)
+                                    cv2.putText(display_frame, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
                             else:
                                 # Log invalid bbox for debugging
                                 print(f"⚠️ Invalid bbox detected: x={x}, y={y}, w={w_face}, h={h_face}, frame_size={frame_w}x{frame_h}")
@@ -881,61 +891,41 @@ class TurboAuthenticationSystem:
                                 center_x, center_y = frame_w // 2, frame_h // 2
                                 default_size = 100
                                 if verification_result['success']:
+                                    user_name = verification_result.get('name', verification_result['user_id'])
                                     cv2.rectangle(display_frame, (center_x - default_size//2, center_y - default_size//2), 
                                                 (center_x + default_size//2, center_y + default_size//2), (0, 255, 0), 3)
-                                    cv2.putText(display_frame, "AUTHENTICATED (Invalid bbox)", (center_x - 100, center_y - default_size//2 - 10), 
-                                              cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                                    cv2.putText(display_frame, user_name, (center_x - 50, center_y - default_size//2 - 10), 
+                                              cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
                                 else:
+                                    # Determine failure type for fallback display
+                                    reason = verification_result.get('reason', 'Unknown')
+                                    if 'FAKE' in reason.upper() or 'anti-spoof' in reason.lower():
+                                        label = "FAKE"
+                                        color = (0, 0, 255)  # Red
+                                    else:
+                                        label = "UNKNOWN"
+                                        color = (0, 255, 255)  # Yellow
+                                    
                                     cv2.rectangle(display_frame, (center_x - default_size//2, center_y - default_size//2), 
-                                                (center_x + default_size//2, center_y + default_size//2), (0, 0, 255), 3)
-                                    cv2.putText(display_frame, "FAILED (Invalid bbox)", (center_x - 100, center_y - default_size//2 - 10), 
-                                              cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+                                                (center_x + default_size//2, center_y + default_size//2), color, 3)
+                                    cv2.putText(display_frame, label, (center_x - 50, center_y - default_size//2 - 10), 
+                                              cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
                         
                         h, w = display_frame.shape[:2]
                         
+                        # Simple status display like continuous mode
                         if verification_result['success']:
                             user_name = verification_result.get('name', verification_result['user_id'])
-                            status = f"✅ AUTHENTICATED: {user_name}"
+                            status = f"✅ {user_name}"
                             color = (0, 255, 0)
-                            
-                            # Add detailed info
-                            cv2.putText(display_frame, f"FAISS Score: {verification_result['confidence']:.3f}", 
-                                      (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
-                            cv2.putText(display_frame, f"Face Confidence: {verification_result.get('face_confidence', 0):.3f}", 
-                                      (50, 130), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
-                            cv2.putText(display_frame, f"Anti-spoof Score: {verification_result.get('antispoof_score', 0):.3f}", 
-                                      (50, 160), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
-                            cv2.putText(display_frame, f"User ID: {verification_result['user_id']}", 
-                                      (50, 190), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
                         else:
-                            status = "❌ AUTHENTICATION FAILED"
-                            color = (0, 0, 255)
                             reason = verification_result.get('reason', 'Unknown')
-                            
-                            # Display detailed failure information
-                            cv2.putText(display_frame, f"Reason: {reason}", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
-                            
-                            # Show confidence scores if available
-                            face_conf = verification_result.get('face_confidence', 0)
-                            antispoof_conf = verification_result.get('antispoof_score', 0)
-                            faiss_conf = verification_result.get('confidence', 0)
-                            
-                            if face_conf > 0:
-                                cv2.putText(display_frame, f"Face Confidence: {face_conf:.3f}", 
-                                          (50, 130), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-                            
-                            if antispoof_conf > 0:
-                                antispoof_color = (0, 255, 0) if antispoof_conf >= self.antispoof_threshold else (0, 0, 255)
-                                cv2.putText(display_frame, f"Anti-spoof: {antispoof_conf:.3f} (min: {self.antispoof_threshold})", 
-                                          (50, 160), cv2.FONT_HERSHEY_SIMPLEX, 0.6, antispoof_color, 2)
-                            
-                            if faiss_conf > 0:
-                                cv2.putText(display_frame, f"FAISS Score: {faiss_conf:.3f} (min: 0.6)", 
-                                          (50, 190), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-                            
-                            # Show thresholds for reference
-                            cv2.putText(display_frame, f"Thresholds - Face: {self.face_threshold:.2f}, Anti-spoof: {self.antispoof_threshold:.2f}", 
-                                      (50, 220), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+                            if 'FAKE' in reason.upper() or 'anti-spoof' in reason.lower():
+                                status = "❌ FAKE DETECTED"
+                                color = (0, 0, 255)
+                            else:
+                                status = "❌ UNKNOWN USER"
+                                color = (0, 255, 255)
                         
                         cv2.putText(display_frame, status, (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
                         cv2.putText(display_frame, "SPACE: Try Again | ESC: Exit", (50, h - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
