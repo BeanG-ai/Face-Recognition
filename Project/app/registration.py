@@ -32,7 +32,7 @@ class UserInfoDialog(QDialog):
         self.setFixedWidth(350)
         layout = QVBoxLayout(self)
         self.fields = {}
-        for label in ["Name", "Age", "Major", "Course", "Gmail", "Phone"]:
+        for label in ["Name", "Age", "Major", "Course", "Email", "Phone"]:
             row = QHBoxLayout()
             lbl = QLabel(label+":")
             edit = QLineEdit()
@@ -59,8 +59,8 @@ class UserInfoDialog(QDialog):
                 raise ValueError(f"Trường '{field.capitalize()}' không được để trống.")
         
         # Ràng buộc định dạng cụ thể (có thể tùy chỉnh)
-        if '@' not in values['gmail']:
-            raise ValueError("Gmail không hợp lệ.")
+        if '@' not in values['email']:
+            raise ValueError("Email không hợp lệ.")
         
         if not values['phone'].isdigit():
             raise ValueError("Số điện thoại phải là số.")
@@ -95,7 +95,7 @@ class Registrar:
                 return user_id, score
         return None, None
 
-    def register_new(self, face_img, emb, name=None, age=None, major=None, course=None, gmail=None, phone=None):
+    def register_new(self, face_img, emb, name=None, age=None, major=None, course=None, email=None, phone=None):
         print('=== Register New User ===')
 
         emb_norm = self._normalize(emb)
@@ -120,7 +120,7 @@ class Registrar:
                 age = values['age']
                 major = values['major']
                 course = values['course']
-                gmail = values['gmail']
+                email = values['email']
                 phone = values['phone']
 
             else:
@@ -136,12 +136,12 @@ class Registrar:
                 major = input('Major: ')
             if course is None:
                 course = input('Course: ')
-            if gmail is None:
-                gmail = input('Gmail: ')
+            if email is None:
+                email = input('Email: ')
             if phone is None:
                 phone = input('Phone: ')
         
-        uid = add_user(name, age, major, course, gmail, phone, emb)
+        uid = add_user(name, age, major, course, email, phone, emb)
         save_face_image(face_img, uid)
 
         # Normalize embedding and add to FAISS

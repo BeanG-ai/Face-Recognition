@@ -44,7 +44,7 @@ class HeadPoseEnrollment:
         self.enrollment_steps = [
             {"name": "CENTER", "angle_range": {"x": (-5, 5), "y": (-5, 5)}, "duration": 2},
             {"name": "UP", "angle_range": {"x": (4, 20), "y": (-10, 10)}, "duration": 2},
-            {"name": "DOWN", "angle_range": {"x": (-20, -8), "y": (-10, 10)}, "duration": 2},
+            {"name": "DOWN", "angle_range": {"x": (-15, -8), "y": (-10, 10)}, "duration": 2},
             {"name": "LEFT", "angle_range": {"x": (-10, 10), "y": (-25, -8)}, "duration": 2},
             {"name": "RIGHT", "angle_range": {"x": (-10, 10), "y": (8, 25)}, "duration": 2}
         ]
