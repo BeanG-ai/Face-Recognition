@@ -865,7 +865,31 @@ class TurboAuthenticationSystem:
                             status = "❌ AUTHENTICATION FAILED"
                             color = (0, 0, 255)
                             reason = verification_result.get('reason', 'Unknown')
+                            
+                            # Display detailed failure information
                             cv2.putText(display_frame, f"Reason: {reason}", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+                            
+                            # Show confidence scores if available
+                            face_conf = verification_result.get('face_confidence', 0)
+                            antispoof_conf = verification_result.get('antispoof_score', 0)
+                            faiss_conf = verification_result.get('confidence', 0)
+                            
+                            if face_conf > 0:
+                                cv2.putText(display_frame, f"Face Confidence: {face_conf:.3f}", 
+                                          (50, 130), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+                            
+                            if antispoof_conf > 0:
+                                antispoof_color = (0, 255, 0) if antispoof_conf >= self.antispoof_threshold else (0, 0, 255)
+                                cv2.putText(display_frame, f"Anti-spoof: {antispoof_conf:.3f} (min: {self.antispoof_threshold})", 
+                                          (50, 160), cv2.FONT_HERSHEY_SIMPLEX, 0.6, antispoof_color, 2)
+                            
+                            if faiss_conf > 0:
+                                cv2.putText(display_frame, f"FAISS Score: {faiss_conf:.3f} (min: 0.6)", 
+                                          (50, 190), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+                            
+                            # Show thresholds for reference
+                            cv2.putText(display_frame, f"Thresholds - Face: {self.face_threshold:.2f}, Anti-spoof: {self.antispoof_threshold:.2f}", 
+                                      (50, 220), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
                         
                         cv2.putText(display_frame, status, (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
                         cv2.putText(display_frame, "SPACE: Try Again | ESC: Exit", (50, h - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
@@ -1060,12 +1084,21 @@ class TurboAuthenticationSystem:
             # Find best face (highest confidence real face)
             best_face = None
             best_score = 0
+            all_faces_info = []  # Store info about all detected faces for detailed reporting
             
             for face_data in faces:
                 if isinstance(face_data, dict) and 'facial_area' in face_data:
                     face_confidence = face_data.get('confidence', 0.0)
                     antispoof_score = face_data.get('antispoof_score', 0.0)
                     is_real = face_data.get('is_real', True)
+                    
+                    # Store face info for detailed reporting
+                    all_faces_info.append({
+                        'face_confidence': face_confidence,
+                        'antispoof_score': antispoof_score,
+                        'is_real': is_real,
+                        'face_data': face_data
+                    })
                     
                     if (is_real and 
                         face_confidence >= self.face_threshold and 
@@ -1077,7 +1110,35 @@ class TurboAuthenticationSystem:
                             best_face = face_data
             
             if not best_face:
-                return {'success': False, 'reason': 'No valid face (fake or low confidence)'}, None
+                # Provide detailed failure reason based on face analysis
+                if not all_faces_info:
+                    return {'success': False, 'reason': 'No faces detected by DeepFace'}, None
+                
+                # Analyze why no face was valid
+                fake_faces = [f for f in all_faces_info if not f['is_real']]
+                low_face_conf = [f for f in all_faces_info if f['face_confidence'] < self.face_threshold]
+                low_antispoof = [f for f in all_faces_info if f['antispoof_score'] < self.antispoof_threshold]
+                
+                # Get the best available face for detailed reporting
+                best_available = max(all_faces_info, key=lambda x: x['face_confidence'])
+                
+                failure_details = {
+                    'success': False,
+                    'face_confidence': best_available['face_confidence'],
+                    'antispoof_score': best_available['antispoof_score'],
+                    'is_real': best_available['is_real']
+                }
+                
+                if fake_faces and len(fake_faces) == len(all_faces_info):
+                    failure_details['reason'] = f'All faces detected as FAKE (anti-spoof failed)'
+                elif low_antispoof:
+                    failure_details['reason'] = f'Anti-spoofing score too low: {best_available["antispoof_score"]:.3f} < {self.antispoof_threshold}'
+                elif low_face_conf:
+                    failure_details['reason'] = f'Face confidence too low: {best_available["face_confidence"]:.3f} < {self.face_threshold}'
+                else:
+                    failure_details['reason'] = f'Face validation failed - Combined criteria not met'
+                
+                return failure_details, None
             
             # Create processed frame showing detection results
             processed_frame = frame.copy()
@@ -1096,7 +1157,12 @@ class TurboAuthenticationSystem:
             h = min(h, frame.shape[0] - y)
             
             if w < 50 or h < 50:
-                return {'success': False, 'reason': 'Face too small'}, None
+                return {
+                    'success': False, 
+                    'reason': f'Face too small: {w}x{h} pixels (minimum: 50x50)',
+                    'face_confidence': best_face.get('confidence', 0),
+                    'antispoof_score': best_face.get('antispoof_score', 0)
+                }, None
             
             # Draw detection on processed frame
             cv2.rectangle(processed_frame, (x, y), (x + w, y + h), (0, 255, 0), 3)
@@ -1111,7 +1177,13 @@ class TurboAuthenticationSystem:
                 # Mark as extraction failed on processed frame
                 cv2.rectangle(processed_frame, (x, y), (x + w, y + h), (0, 0, 255), 3)
                 cv2.putText(processed_frame, "EMBEDDING FAILED", (x, y + h + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
-                return {'success': False, 'reason': 'Embedding extraction failed'}, processed_frame
+                
+                return {
+                    'success': False, 
+                    'reason': 'Embedding extraction failed (model error)',
+                    'face_confidence': best_face.get('confidence', 0),
+                    'antispoof_score': best_face.get('antispoof_score', 0)
+                }, processed_frame
             
             # Verify with FAISS vector store
             db_result = self.inference_system.search_user_by_embedding(embedding, threshold=0.6)
@@ -1137,7 +1209,17 @@ class TurboAuthenticationSystem:
                 cv2.putText(processed_frame, "UNKNOWN PERSON", (x, y - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
                 cv2.putText(processed_frame, "Not in FAISS database", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
                 
-                return {'success': False, 'reason': 'User not found in FAISS database'}, processed_frame
+                # Try to get the closest match for debugging
+                closest_result = self.inference_system.search_user_by_embedding(embedding, threshold=0.1)  # Very low threshold
+                closest_score = closest_result.get('confidence', 0) if closest_result else 0
+                
+                return {
+                    'success': False, 
+                    'reason': f'User not in database (closest match: {closest_score:.3f}, required: 0.6)',
+                    'face_confidence': best_face.get('confidence', 0),
+                    'antispoof_score': best_face.get('antispoof_score', 0),
+                    'confidence': closest_score  # Show the closest match score
+                }, processed_frame
                 
         except Exception as e:
             print(f"❌ Verification error: {e}")
