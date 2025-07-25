@@ -105,10 +105,8 @@ class MainMenu(QWidget):
         btn_auth.clicked.connect(self.run_authentication)
         btn_monitor = QPushButton("📊 System Monitor")
         btn_monitor.clicked.connect(self.run_monitor)
-        btn_opt = QPushButton("⚡ Optimize Models")
-        btn_opt.clicked.connect(self.run_optimize)
         
-        for btn in [btn_reg, btn_auth, btn_monitor, btn_opt]:
+        for btn in [btn_reg, btn_auth, btn_monitor]:
             btn.setFont(QFont("Segoe UI", 14, QFont.Bold))
             btn.setFixedHeight(60)
             layout.addWidget(btn)
@@ -208,12 +206,7 @@ class MainMenu(QWidget):
         self.status.setText("Running system monitor...")
         self.run_with_worker(["system_monitor.py"], "System monitor closed.", "System monitor failed.")
 
-    def run_optimize(self):
-        self.status.setText("Optimizing models...")
-        try:
-            self.run_with_worker(["optimize_tensorrt.py"], "Model optimization completed.", "Model optimization failed.")
-        except Exception:
-            self.run_with_worker(["./optimize_models.sh"], "Model optimization completed.", "Model optimization failed.")
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
