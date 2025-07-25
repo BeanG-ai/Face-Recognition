@@ -8,7 +8,6 @@ from Project.utils.face_utils import save_face_image
 import sys
 import onnxruntime as ort
 import uuid
-from Project.utils.camera_config import get_working_camera_device  # ADDED: import camera config
 
 # Import TensorRT utilities
 from Project.utils.tensorrt_utils import load_optimized_model
@@ -168,9 +167,9 @@ class FaceRegistrationApp:
         if use_tensorrt:
             try:
                 # Load optimized face recognition model
-                self.model = load_optimized_model('inception_resnet_v1_fp16', precision=precision)
+                self.model = load_optimized_model('inception_resnet_v1', precision=precision)
                 self.using_tensorrt = True
-                print(f"Using TensorRT optimized face embedding model (FP16) with {precision} precision")
+                print(f"Using TensorRT optimized face embedding model with {precision} precision")
                 
                 # For FAISS, we need embedding dimension - default is 512 for Inception ResNet v1
                 emb_dim = 512
@@ -208,9 +207,9 @@ class FaceRegistrationApp:
             if len(emb.shape) > 1:
                 emb = emb[0]
         else:
-            # Convert input to float16 for FP16 model
-            inp_fp16 = inp.astype(np.float16)
-            emb = self.session.run(None, {'input': inp_fp16})[0][0]
+            # Always use float32 for ONNX model, regardless of precision setting
+            inp = inp.astype(np.float32)
+            emb = self.session.run(None, {'input': inp})[0][0]
             
         return emb
         
@@ -235,11 +234,10 @@ class FaceRegistrationApp:
         # Initialize head pose enrollment
         enrollment = HeadPoseEnrollment(save_path=user_dir)
         
-        # Open webcam with appropriate device for platform
-        camera_device = get_working_camera_device()
-        cap = cv2.VideoCapture(camera_device)
+        # Open webcam
+        cap = cv2.VideoCapture(0)
         if not cap.isOpened():
-            print(f"Error: Could not open webcam device: {camera_device}")
+            print("Error: Could not open webcam.")
             return
         
         print("Face Registration started. Follow the on-screen instructions.")
