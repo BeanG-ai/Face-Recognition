@@ -8,7 +8,6 @@ from Project.utils.face_utils import save_face_image
 import sys
 import onnxruntime as ort
 import uuid
-
 # Import TensorRT utilities
 from Project.utils.tensorrt_utils import load_optimized_model
 
@@ -18,9 +17,9 @@ from Project.utils.Detector import FaceDetector
 from Project.utils.face_utils import preprocess_face
 from Project.utils.vector_store import FaissStore
 
-
 try:
     from PyQt5.QtWidgets import QApplication, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton
+    from PyQt5.QtCore import Qt
     PYQT5_AVAILABLE = True
 except ImportError:
     PYQT5_AVAILABLE = False
@@ -29,135 +28,41 @@ class UserInfoDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Enter User Information")
-        self.setFixedWidth(400)
-        self.setStyleSheet("""
-            QDialog {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #667eea, stop:1 #764ba2);
-                color: white;
-            }
-            QLabel {
-                color: white;
-                font-weight: bold;
-                font-size: 12px;
-            }
-            QLineEdit {
-                padding: 8px;
-                border: 2px solid rgba(255, 255, 255, 0.3);
-                border-radius: 8px;
-                background: rgba(255, 255, 255, 0.1);
-                color: white;
-                font-size: 12px;
-            }
-            QLineEdit:focus {
-                border: 2px solid rgba(255, 255, 255, 0.8);
-                background: rgba(255, 255, 255, 0.2);
-            }
-            QPushButton {
-                padding: 10px;
-                border: 2px solid rgba(255, 255, 255, 0.3);
-                border-radius: 8px;
-                background: rgba(255, 255, 255, 0.2);
-                color: white;
-                font-weight: bold;
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                background: rgba(255, 255, 255, 0.3);
-                border: 2px solid rgba(255, 255, 255, 0.5);
-            }
-            QPushButton:pressed {
-                background: rgba(255, 255, 255, 0.4);
-            }
-        """)
-        
+        self.setFixedWidth(350)
         layout = QVBoxLayout(self)
-        layout.setSpacing(15)
-        layout.setContentsMargins(20, 20, 20, 20)
-        
-        # Title
-        title = QLabel("👤 User Information")
-        title.setStyleSheet("font-size: 18px; font-weight: bold; color: white; margin-bottom: 10px;")
-        title.setAlignment(Qt.AlignCenter)
-        layout.addWidget(title)
-        
         self.fields = {}
-        field_configs = [
-            ("Name", "Enter full name", "text"),
-            ("Age", "Enter age (16-100)", "number"),
-            ("Major", "Enter major/field", "text"),
-            ("Course", "Enter course/class", "text"),
-            ("Email", "Enter email address", "email"),
-            ("Phone", "Enter phone number", "phone")
-        ]
-        
-        for label, placeholder, field_type in field_configs:
+        for label in ["Name", "Age", "Major", "Course", "Email", "Phone"]:
             row = QHBoxLayout()
-            lbl = QLabel(f"{label}:")
-            lbl.setFixedWidth(80)
+            lbl = QLabel(label+":")
             edit = QLineEdit()
-            edit.setPlaceholderText(placeholder)
-            edit.setFixedHeight(35)
             row.addWidget(lbl)
             row.addWidget(edit)
             layout.addLayout(row)
             self.fields[label.lower()] = edit
-        
-        # Buttons
         btn_row = QHBoxLayout()
-        self.ok_btn = QPushButton("✅ Confirm")
-        self.cancel_btn = QPushButton("❌ Cancel")
-        self.ok_btn.setFixedHeight(40)
-        self.cancel_btn.setFixedHeight(40)
+        self.ok_btn = QPushButton("OK")
+        self.cancel_btn = QPushButton("Cancel")
         btn_row.addWidget(self.ok_btn)
         btn_row.addWidget(self.cancel_btn)
         layout.addLayout(btn_row)
-        
-        self.ok_btn.clicked.connect(self.validate_and_accept)
+        self.ok_btn.clicked.connect(self.accept)
         self.cancel_btn.clicked.connect(self.reject)
-
-    def validate_and_accept(self):
-        try:
-            values = self.get_values()
-            self.accept()
-        except ValueError as e:
-            QMessageBox.warning(self, "Validation Error", str(e))
-
+    # def get_values(self):
+    #     return {k: v.text() for k, v in self.fields.items()}
     def get_values(self):
         values = {k: v.text().strip() for k, v in self.fields.items()}
-        
-        # Check for empty fields
+    
+    # Kiểm tra bắt buộc các trường không bỏ trống
         for field, value in values.items():
             if not value:
-                raise ValueError(f"❌ Field '{field.capitalize()}' cannot be empty.")
+                raise ValueError(f"Trường '{field.capitalize()}' không được để trống.")
         
-        # Validate age
-        try:
-            age = int(values['age'])
-            if age < 16 or age > 100:
-                raise ValueError("❌ Age must be between 16 and 100.")
-        except ValueError:
-            raise ValueError("❌ Age must be a valid number between 16 and 100.")
+        # Ràng buộc định dạng cụ thể (có thể tùy chỉnh)
+        if '@' not in values['email']:
+            raise ValueError("Email không hợp lệ.")
         
-        # Validate email format
-        email = values['email'].lower()
-        if '@' not in email or '.' not in email or email.count('@') != 1:
-            raise ValueError("❌ Please enter a valid email address (e.g., user@example.com)")
-        
-        # Validate phone number (Vietnamese format)
-        phone = values['phone'].replace(' ', '').replace('-', '').replace('+84', '0')
-        if not phone.isdigit() or len(phone) < 9 or len(phone) > 11:
-            raise ValueError("❌ Please enter a valid phone number (9-11 digits)")
-        
-        # Validate name (at least 2 characters)
-        if len(values['name']) < 2:
-            raise ValueError("❌ Name must be at least 2 characters long.")
-        
-        # Validate major and course (at least 2 characters)
-        if len(values['major']) < 2:
-            raise ValueError("❌ Major must be at least 2 characters long.")
-        if len(values['course']) < 2:
-            raise ValueError("❌ Course must be at least 2 characters long.")
+        if not values['phone'].isdigit():
+            raise ValueError("Số điện thoại phải là số.")
 
         return values
 

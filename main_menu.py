@@ -81,17 +81,17 @@ class MainMenu(QWidget):
         
         # Title with icon
         title = QLabel("🎯 Face Recognition System")
-        title.setFont(QFont("Segoe UI", 18, QFont.Bold))
+        title.setFont(QFont("Segoe UI", 22, QFont.Bold))
         title.setAlignment(Qt.AlignCenter)
-        title.setStyleSheet("color: white; margin-bottom: 15px; padding: 10px;")
+        title.setStyleSheet("color: white; margin-bottom: 15px; padding: 15px; text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5); border-bottom: 2px solid rgba(255, 255, 255, 0.5); letter-spacing: 1px;")
         title.setWordWrap(True)
-        title.setMinimumHeight(60)
+        title.setMinimumHeight(70)
         layout.addWidget(title)
         
         subtitle = QLabel("Select a feature to get started")
-        subtitle.setFont(QFont("Segoe UI", 10))
+        subtitle.setFont(QFont("Segoe UI", 12))
         subtitle.setAlignment(Qt.AlignCenter)
-        subtitle.setStyleSheet("color: rgba(255, 255, 255, 0.8); margin-bottom: 25px; padding: 5px;")
+        subtitle.setStyleSheet("color: rgba(255, 255, 255, 0.9); margin-bottom: 25px; padding: 5px; text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);")
         subtitle.setWordWrap(True)
         subtitle.setMinimumHeight(30)
         layout.addWidget(subtitle)
@@ -105,10 +105,22 @@ class MainMenu(QWidget):
         btn_auth.clicked.connect(self.run_authentication)
         btn_monitor = QPushButton("📊 System Monitor")
         btn_monitor.clicked.connect(self.run_monitor)
+        btn_opt = QPushButton("⚡ Optimize Models")
+        btn_opt.clicked.connect(self.run_optimize)
         
-        for btn in [btn_reg, btn_auth, btn_monitor]:
+        for btn in [btn_reg, btn_auth, btn_monitor, btn_opt]:
             btn.setFont(QFont("Segoe UI", 14, QFont.Bold))
-            btn.setFixedHeight(60)
+            btn.setFixedHeight(65)
+            btn.setStyleSheet("""
+                background: rgba(255, 255, 255, 0.2);
+                border: 2px solid rgba(255, 255, 255, 0.3);
+                border-radius: 15px;
+                padding: 15px;
+                font-size: 16px;
+                font-weight: bold;
+                color: white;
+                text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
+            """)
             layout.addWidget(btn)
             layout.addSpacing(25)
         
@@ -148,11 +160,13 @@ class MainMenu(QWidget):
         self.status = QLabel("Ready to use")
         self.status.setAlignment(Qt.AlignCenter)
         self.status.setStyleSheet("""
-            color: rgba(255, 255, 255, 0.9);
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 10px;
-            padding: 10px;
-            font-size: 12px;
+            color: rgba(255, 255, 255, 0.95);
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 12px;
+            padding: 12px;
+            font-size: 13px;
+            font-weight: bold;
+            border: 1px solid rgba(255, 255, 255, 0.2);
         """)
         layout.addWidget(self.status)
         
@@ -206,6 +220,9 @@ class MainMenu(QWidget):
         self.status.setText("Running system monitor...")
         self.run_with_worker(["system_monitor.py"], "System monitor closed.", "System monitor failed.")
 
+    def run_optimize(self):
+        self.status.setText("Optimizing models...")
+        self.run_with_worker(["optimize_models.py"], "Model optimization completed.", "Model optimization failed.")
 
 
 if __name__ == "__main__":
