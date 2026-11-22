@@ -2,6 +2,13 @@
 
 A comprehensive facial recognition and authentication system optimized for NVIDIA Jetson Orin Nano X, featuring real-time detection, multi-angle registration, and secure authentication with visual guidance.
 
+> ## 📄 Project Report
+> Full technical report (DAT301M, 16 pages): architecture, registration / recognition / authentication flows, anti-spoofing, TensorRT optimisation and deployment.
+>
+> **[➡️ Read the report (PDF)](Report.pdf)**
+
+[![System architecture from the report](docs/images/report-architecture.png)](Report.pdf)
+
 ## Features
 
 - **Three Operating Modes**:
